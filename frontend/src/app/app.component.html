@@ -1,0 +1,40 @@
+<mat-toolbar class="app-toolbar">
+  <a class="brand" routerLink="/">
+    <mat-icon aria-hidden="true">insights</mat-icon>
+    <span>AI Visibility Intelligence</span>
+  </a>
+
+  <span class="spacer"></span>
+
+  <button
+    mat-icon-button
+    type="button"
+    class="theme-toggle"
+    (click)="theme.toggle()"
+    [attr.aria-pressed]="theme.dark()"
+    [attr.aria-label]="theme.dark() ? 'Switch to light mode' : 'Switch to dark mode'"
+  >
+    <mat-icon>{{ theme.dark() ? 'light_mode' : 'dark_mode' }}</mat-icon>
+  </button>
+
+  <nav class="nav">
+    <a
+      mat-button
+      routerLink="/"
+      routerLinkActive="active"
+      [routerLinkActiveOptions]="{ exact: true }"
+      aria-label="Dashboard"
+    >
+      <mat-icon>dashboard</mat-icon>
+      <span class="nav-label">Dashboard</span>
+    </a>
+    <a mat-flat-button routerLink="/profiles/new" routerLinkActive="active" aria-label="New Profile">
+      <mat-icon>add</mat-icon>
+      <span class="nav-label">New Profile</span>
+    </a>
+  </nav>
+</mat-toolbar>
+
+<main class="page" [@routeAnimations]="routeAnimationState(outlet)">
+  <router-outlet #outlet="outlet" />
+</main>

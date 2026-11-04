@@ -1,0 +1,39 @@
+:host {
+  display: block;
+  max-width: 880px;
+}
+
+.form-card {
+  padding: 24px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 8px;
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.button-spinner {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: middle;
+  --mat-progress-spinner-active-indicator-color: currentColor;
+}
+
+@media (max-width: 719px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}

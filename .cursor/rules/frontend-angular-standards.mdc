@@ -1,0 +1,51 @@
+---
+description: Angular architecture standards — standalone components, strict TypeScript, services, typed models, RxJS, state, routing, and Reactive Forms
+globs: frontend/**/*.ts
+alwaysApply: false
+---
+
+# Frontend — Angular Standards
+
+## Baseline
+- Angular v17+ with standalone components. TypeScript `strict: true` in `tsconfig.json`.
+- No `any`. Every API response has an interface in `shared/models/`
+  (`profile.model.ts`, `query.model.ts`, `recommendation.model.ts`). Field names match the
+  backend JSON exactly (snake_case as defined in the spec).
+
+## Services (no HttpClient in components)
+- All HTTP calls live in `core/services/` (`ProfileService`, `QueryService`,
+  `PipelineService`). Components inject services; they never inject `HttpClient`.
+- Base URL comes from `environment.apiUrl`; never hardcode `http://localhost:5000`.
+- Service methods return typed Observables: `Observable<Profile>`, never Promises,
+  never `toPromise()` / `firstValueFrom()` for API data.
+
+```ts
+// ✅ GOOD
+getProfile(uuid: string): Observable<Profile> {
+  return this.http.get<Profile>(`${environment.apiUrl}/api/v1/profiles/${uuid}`);
+}
+// ❌ BAD — component calling HttpClient, untyped, Promise-based
+await this.http.get(url).toPromise();
+```
+
+## Errors
+- Handle HTTP errors with `catchError` in RxJS pipelines. Convert to a user-friendly
+  message shown in the UI and via MatSnackBar. `console.error` alone is not acceptable.
+
+## Data fetching and state
+- Fetch data in an Angular Resolver or in component `ngOnInit` (spec allows either).
+- Shared state across components uses Angular Signals or `BehaviorSubject`.
+- Unsubscribe correctly (async pipe, `takeUntilDestroyed`, or `takeUntil`).
+
+## Routing
+- Routes in `app.routes.ts`. Dashboard, Profiles, and Queries are lazy-loaded
+  (`loadComponent` / `loadChildren`).
+
+## Forms
+- Reactive Forms only (`FormGroup` / `FormControl` / `FormBuilder`). No `ngModel`
+  template-driven forms anywhere.
+- Validators live with the form definition; custom validators (e.g. domain format) are
+  reusable functions, not inline logic in templates.
+
+## No mock data
+- No hardcoded arrays, fake stats, or placeholder records. Empty data shows an empty state.

@@ -1,0 +1,43 @@
+---
+description: SQLAlchemy models, UUID primary keys, relationships, serialisation, and migrations for the backend
+globs: backend/app/models/**/*.py,backend/migrations/**/*.py
+alwaysApply: false
+---
+
+# Backend — Data Models & Persistence
+
+## Required models and fields (do not rename or drop any)
+| Model | Fields |
+|---|---|
+| BusinessProfile | uuid, name, domain, industry, description, competitors (JSON), status, created_at, updated_at |
+| PipelineRun | uuid, profile_uuid (FK), status, queries_discovered, queries_scored, tokens_used, error_message, started_at, completed_at |
+| DiscoveredQuery | uuid, profile_uuid (FK), run_uuid (FK), query_text, estimated_search_volume, competitive_difficulty, opportunity_score, domain_visible, visibility_position, discovered_at |
+| ContentRecommendation | uuid, profile_uuid (FK), query_uuid (FK), content_type, title, rationale, target_keywords (JSON), priority, created_at |
+
+- Files follow the suggested tree: `models/profile.py`, `models/query.py`,
+  `models/recommendation.py`. Place `PipelineRun` where it is clearly discoverable and
+  export every model from `models/__init__.py` so migrations detect them.
+
+## Keys and relationships
+- `uuid` is the primary key on every model (UUID PKs are graded). Generate it server-side.
+- Foreign keys reference the parent's `uuid`. Define `relationship()` on both sides with
+  sensible cascade so deleting a profile does not leave orphans.
+- Keep the schema normalised: no duplicated profile data on child rows beyond the FKs.
+
+## Constraints
+- `opportunity_score`: float 0.0–1.0. `competitive_difficulty`: 0–100.
+- `visibility_position`: integer or null.
+- `content_type` ∈ `blog_post | landing_page | faq`; `priority` ∈ `high | medium | low`.
+- Status value sets for BusinessProfile/PipelineRun and how `unknown` visibility is stored
+  are open decisions — confirm with the user before fixing them in the schema.
+- Timestamps are timezone-aware UTC and serialised as ISO 8601 strings.
+
+## Serialisation
+- Each model has one `to_dict()` (or schema) used by every endpoint, so field names in
+  JSON always match the spec. Recommendations expose `recommendation_uuid` and
+  `target_query_uuid` as named in the spec.
+
+## Migrations
+- Schema changes go through Flask-Migrate (Alembic). Never use `db.create_all()` as the
+  setup path. Commit the `migrations/` folder.
+- Migrations must run cleanly on an empty database (reviewers run it cold).

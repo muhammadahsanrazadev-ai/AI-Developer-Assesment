@@ -1,0 +1,40 @@
+---
+description: UI/UX requirements for every Angular view — loading/error/empty states, MatSnackBar events, responsive breakpoints, colour coding, and Material components
+globs: frontend/src/**/*.html,frontend/src/**/*.scss,frontend/src/**/*.component.ts
+alwaysApply: false
+---
+
+# Frontend — UI/UX Requirements
+
+For per-screen requirements, use the `angular-feature-views` skill.
+
+## States on every async operation
+- **Loading**: spinner or skeleton. Spec wording: use `*ngIf` with a loading boolean or
+  Angular CDK's overlay spinner.
+- **Error**: user-friendly message in the view when an API call fails.
+- **Empty**: meaningful placeholder when no data exists yet (no profiles, no queries
+  before a run, no recommendations).
+
+## Snackbar notifications (MatSnackBar)
+- Required events: pipeline started, pipeline complete, recheck done, errors.
+- Also use it for success/error of form submission (spec: success and error events).
+
+## Responsive layout
+- CSS Grid/Flexbox (Angular `flex-layout` is deprecated; the spec allows Grid/Flexbox).
+- Must work at desktop (1280px+) and tablet (768px+). Verify both widths.
+
+## Colour coding (exact thresholds from the spec)
+- Opportunity score chip: green ≥ 0.7, yellow 0.4–0.69, red < 0.4.
+- Chart bars: domain visible = blue, not visible = orange.
+- Priority badge on recommendation cards is colour-coded (high / medium / low).
+- Define colours once (shared SCSS variables or a shared helper), not per component.
+
+## Required Material components (or the spec's stated equivalent)
+- `mat-error` for inline validation · chip/tag input for competitors · `mat-progress-spinner`
+  while the pipeline runs · `mat-tab` on Profile Detail · `mat-table` + `MatPaginator` ·
+  `mat-slider` (min score) · `mat-select` (visibility) · `mat-card` for recommendations
+  (not a table) · `mat-button-toggle-group` (All / High / Medium / Low).
+
+## Polish level
+- Functionality and real API integration matter more than pixel-perfect UI. Keep styling
+  clean and consistent; do not spend effort on decorative work before Must Haves are done.

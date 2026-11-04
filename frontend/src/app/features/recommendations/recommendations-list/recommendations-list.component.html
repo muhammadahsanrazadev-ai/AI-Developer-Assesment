@@ -1,0 +1,85 @@
+@if (loading()) {
+  <div class="cards-grid" role="status" aria-label="Loading recommendations">
+    @for (card of [1, 2, 3]; track card) {
+      <mat-card appearance="outlined" class="rec-card">
+        <mat-card-content>
+          <div class="skeleton-stack">
+            <app-skeleton width="120px" height="24px" />
+            <app-skeleton width="80%" height="22px" />
+            <app-skeleton height="64px" />
+            <app-skeleton width="60%" height="28px" />
+          </div>
+        </mat-card-content>
+      </mat-card>
+    }
+  </div>
+} @else if (error()) {
+  <mat-card appearance="outlined">
+    <div class="state-panel state-panel--error" role="alert">
+      <mat-icon class="state-icon">cloud_off</mat-icon>
+      <h2>Could not load recommendations</h2>
+      <p>{{ error() }}</p>
+      <button mat-flat-button type="button" (click)="load()">Try again</button>
+    </div>
+  </mat-card>
+} @else if (recommendations().length === 0) {
+  <mat-card appearance="outlined">
+    <div class="state-panel">
+      <mat-icon class="state-icon empty-illustration">tips_and_updates</mat-icon>
+      <h2>No recommendations yet</h2>
+      <p>
+        Run the pipeline and the Content Recommendation Agent will suggest blog posts, landing pages and FAQs
+        for the queries where this business is not visible.
+      </p>
+    </div>
+  </mat-card>
+} @else {
+  <div class="toolbar">
+    <mat-button-toggle-group
+      [formControl]="priorityFilter"
+      aria-label="Filter recommendations by priority"
+      hideSingleSelectionIndicator
+    >
+      <mat-button-toggle value="all">All ({{ recommendations().length }})</mat-button-toggle>
+      <mat-button-toggle value="high">High ({{ countFor('high') }})</mat-button-toggle>
+      <mat-button-toggle value="medium">Medium ({{ countFor('medium') }})</mat-button-toggle>
+      <mat-button-toggle value="low">Low ({{ countFor('low') }})</mat-button-toggle>
+    </mat-button-toggle-group>
+  </div>
+
+  @if (filtered().length === 0) {
+    <mat-card appearance="outlined">
+      <div class="state-panel">
+        <mat-icon class="state-icon">filter_list_off</mat-icon>
+        <h2>No {{ priorityFilter.value }} priority recommendations</h2>
+        <p>Choose another priority to see the rest of the recommendations.</p>
+        <button mat-stroked-button type="button" (click)="priorityFilter.setValue('all')">Show all</button>
+      </div>
+    </mat-card>
+  } @else {
+    <div class="cards-grid">
+      @for (item of filtered(); track item.recommendation_uuid) {
+        <mat-card appearance="outlined" class="rec-card">
+          <mat-card-header>
+            <div class="badges">
+              <span class="badge badge--type">
+                <mat-icon inline>{{ contentTypeIcons[item.content_type] }}</mat-icon>
+                {{ contentTypeLabels[item.content_type] }}
+              </span>
+              <span class="badge" [class]="'badge--' + item.priority">{{ item.priority }} priority</span>
+            </div>
+          </mat-card-header>
+          <mat-card-content>
+            <h3 class="rec-title">{{ item.title }}</h3>
+            <p class="rec-rationale">{{ item.rationale }}</p>
+            <mat-chip-set aria-label="Target keywords">
+              @for (keyword of item.target_keywords; track keyword) {
+                <mat-chip>{{ keyword }}</mat-chip>
+              }
+            </mat-chip-set>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+}

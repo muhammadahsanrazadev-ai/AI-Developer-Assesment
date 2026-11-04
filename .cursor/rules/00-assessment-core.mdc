@@ -1,0 +1,47 @@
+---
+description: Core constraints for the AI Visibility Intelligence Platform assessment — source of truth, scope, priorities, and how to handle spec gaps
+alwaysApply: true
+---
+
+# Assessment Core Rules
+
+## Source of truth
+- The assessment spec is authoritative: `.cursor/skills/assessment-requirements/reference.md`.
+- Never assume, modify, or drop a requirement. If code and spec disagree, the spec wins.
+- Use exact names from the spec: endpoint paths, field names (`query_text`,
+  `opportunity_score`, `domain_visible`, ...), enum values (`blog_post | landing_page | faq`,
+  `high | medium | low`, `visible | not_visible | unknown`), model names, service names.
+
+## Spec gaps
+- When the spec is silent or ambiguous, do NOT pick an answer silently. Ask the user,
+  using the "Open decisions" table in the `assessment-requirements` skill.
+- Every confirmed decision goes into the README "Tradeoffs / Design decisions" section.
+
+## Scope
+- Stack is fixed: Flask + SQLAlchemy (SQLite or PostgreSQL) + OpenAI (GPT-4o) or
+  Anthropic (Claude) on the backend; Angular v17+ + TypeScript strict + Angular Material
+  or TailwindCSS + RxJS + ng2-charts or ngx-charts on the frontend.
+- Do not add technologies, layers, or features the spec does not ask for (no auth layer —
+  the spec says none is required; no state libraries beyond Signals/BehaviorSubject).
+- If a feature seems to need a dependency or infrastructure not named in the spec, ask the
+  user first and document the reason in the README.
+- "Simplicity and clarity beat over-engineering." Prefer the smallest design that meets
+  every requirement.
+
+## Mandatory before bonus
+- Complete every Must Have item before any bonus item (async, dark mode, Docker,
+  polling, CSV export, skeleton loaders, route animations, tests, Loom).
+- Bonus work must never break or replace a Must Have behaviour.
+
+## Data integrity
+- Zero hardcoded mock data in the frontend. Every displayed value comes from the Flask API.
+- Never commit real API keys. Secrets live in `.env`; only `.env.example` is committed.
+
+## Project layout
+- Follow the suggested structure: `backend/` (Flask), `frontend/` (Angular workspace),
+  `docker-compose.yml` at the root. Keep file names from the suggested tree.
+
+## Work style
+- Implement one scoped step at a time, as agreed with the user; stop when it is done.
+- After each step, verify it against the compliance checklist in the
+  `assessment-requirements` skill.

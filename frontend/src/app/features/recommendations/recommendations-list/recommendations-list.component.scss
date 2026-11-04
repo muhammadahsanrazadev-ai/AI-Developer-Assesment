@@ -1,0 +1,67 @@
+:host {
+  display: block;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.rec-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+
+  &--type {
+    color: var(--mat-sys-on-secondary-container);
+    background: var(--mat-sys-secondary-container);
+  }
+
+  @each $priority in high, medium, low {
+    &--#{$priority} {
+      color: var(--priority-#{$priority});
+      background: var(--priority-#{$priority}-bg);
+    }
+  }
+}
+
+.rec-title {
+  margin: 12px 0 8px;
+  font: var(--mat-sys-title-medium);
+}
+
+.rec-rationale {
+  margin: 0 0 12px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.empty-illustration {
+  width: 72px;
+  height: 72px;
+  font-size: 72px;
+  color: var(--mat-sys-primary);
+}

@@ -1,0 +1,32 @@
+.score-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid currentColor;
+
+  &--high {
+    color: var(--score-high);
+    background: var(--score-high-bg);
+  }
+
+  &--medium {
+    color: var(--score-medium);
+    background: var(--score-medium-bg);
+  }
+
+  &--low {
+    color: var(--score-low);
+    background: var(--score-low-bg);
+  }
+
+  &--none {
+    color: var(--mat-sys-on-surface-variant);
+    background: var(--mat-sys-surface-container);
+  }
+}

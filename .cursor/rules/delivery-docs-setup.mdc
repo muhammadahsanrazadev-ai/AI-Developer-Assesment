@@ -1,0 +1,40 @@
+---
+description: Delivery requirements — README contents, env example files, docker-compose/setup script, cold-run in under 5 minutes, and submission
+globs: README.md,**/README.md,docker-compose.yml,**/Dockerfile,**/.env.example,frontend/src/environments/**,backend/requirements.txt
+alwaysApply: false
+---
+
+# Delivery — README, Setup & Submission
+
+For the full workflow and README template, use the `delivery-and-readme` skill.
+
+## Runnable cold
+- Reviewers "run it cold". The project must start via `docker-compose up` or a simple
+  setup script, and setup must work in under 5 minutes.
+- `docker-compose.yml` at the root spins up backend + frontend together.
+- Database migrations must be applied as part of setup — no manual hidden steps.
+
+## Environment files
+- `backend/.env.example` contains at least: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+  `DATABASE_URL`, `FLASK_ENV`, `SECRET_KEY` — placeholder values only.
+- `frontend/src/environments/environment.ts` has `production: false` and
+  `apiUrl: 'http://localhost:5000'`; `environment.prod.ts` exists.
+- `.env` is git-ignored. Never commit real keys.
+
+## README must cover (each one is graded or required)
+- Setup for BOTH backend and frontend, step by step.
+- Architecture overview.
+- Agent design (three agents, orchestrator, partial-failure handling, validation/fallback).
+- Opportunity score formula with explanation.
+- Tradeoffs and design decisions (including every resolved spec gap).
+- AI model selection (OpenAI GPT-4o or Anthropic Claude) and why.
+- AI coding tools used and for what.
+- Frontend install/serve instructions (spec: "ng install && ng serve").
+
+## Dependencies
+- Pin backend dependencies in `backend/requirements.txt`; frontend deps in `package.json`.
+- Only add dependencies required by the spec or confirmed by the user.
+
+## Submission
+- Push to a public or private GitHub repository; if private, invite the hiring manager.
+- Submit the repository link via the portal or email provided.

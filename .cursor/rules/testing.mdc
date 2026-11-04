@@ -1,0 +1,36 @@
+---
+description: Testing guidance (bonus item) — few well-chosen backend tests and Angular service unit tests with HttpClientTestingModule
+globs: backend/tests/**/*.py,frontend/**/*.spec.ts
+alwaysApply: false
+---
+
+# Testing (Bonus)
+
+- Spec: "a few well-chosen tests beat 100 trivial ones". Do not chase coverage.
+- Tests are a bonus item: write them only after the Must Have items they cover work.
+- Tests must never call a real LLM provider or need a real API key. Stub the LLM client
+  at the agent base-class boundary.
+
+## Backend (`backend/tests/`) — highest-value targets
+- Agent output validation: malformed JSON, missing fields, out-of-range values do not
+  crash and follow the documented fallback.
+- Orchestrator partial failure: one query's scoring fails → run still completes with
+  correct `queries_scored` and `error_message`.
+- Opportunity score function: range 0.0–1.0 and expected ordering.
+- API: status codes and the consistent error format (400 bad params, 404 unknown UUID).
+- Use an isolated test database created via `create_app()` test config.
+
+## Frontend — Services only (spec bonus item)
+- Unit tests for services with Jest or Jasmine + `HttpClientTestingModule`
+  (or `provideHttpClientTesting`).
+- Assert the request URL/method/params built from `environment.apiUrl`, the typed
+  response mapping, and the `catchError` path.
+
+```ts
+it('fetches a profile', () => {
+  service.getProfile('abc').subscribe(p => expect(p.domain).toBe('surferseo.com'));
+  const req = httpMock.expectOne(`${environment.apiUrl}/api/v1/profiles/abc`);
+  expect(req.request.method).toBe('GET');
+  req.flush(profileFixture);
+});
+```

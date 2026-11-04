@@ -1,0 +1,177 @@
+@use '@angular/material' as mat;
+
+html {
+  // `html.dark` (toggled from the toolbar) flips Material's light-dark() tokens.
+  color-scheme: light;
+  @include mat.theme((
+    color: (
+      primary: mat.$azure-palette,
+      tertiary: mat.$orange-palette,
+    ),
+    typography: Roboto,
+    density: 0,
+  ));
+
+  // Spec colours, defined once and reused by every component.
+  --score-high: #2e7d32;
+  --score-high-bg: #e8f5e9;
+  --score-medium: #8d6e00;
+  --score-medium-bg: #fff8e1;
+  --score-low: #c62828;
+  --score-low-bg: #ffebee;
+
+  --priority-high: #c62828;
+  --priority-high-bg: #ffebee;
+  --priority-medium: #8d6e00;
+  --priority-medium-bg: #fff8e1;
+  --priority-low: #455a64;
+  --priority-low-bg: #eceff1;
+
+  --status-completed: #2e7d32;
+  --status-completed-bg: #e8f5e9;
+  --status-failed: #c62828;
+  --status-failed-bg: #ffebee;
+  --status-running: #1565c0;
+  --status-running-bg: #e3f2fd;
+  --status-created: #455a64;
+  --status-created-bg: #eceff1;
+
+  --page-max-width: 1280px;
+  --page-padding: 24px;
+
+  &.dark {
+    color-scheme: dark;
+
+    --score-high: #a5d6a7;
+    --score-high-bg: #1b3a22;
+    --score-medium: #ffe082;
+    --score-medium-bg: #3d3410;
+    --score-low: #ef9a9a;
+    --score-low-bg: #3e1c1c;
+
+    --priority-high: #ef9a9a;
+    --priority-high-bg: #3e1c1c;
+    --priority-medium: #ffe082;
+    --priority-medium-bg: #3d3410;
+    --priority-low: #cfd8dc;
+    --priority-low-bg: #263238;
+
+    --status-completed: #a5d6a7;
+    --status-completed-bg: #1b3a22;
+    --status-failed: #ef9a9a;
+    --status-failed-bg: #3e1c1c;
+    --status-running: #90caf9;
+    --status-running-bg: #0d2744;
+    --status-created: #cfd8dc;
+    --status-created-bg: #263238;
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface);
+}
+
+@media (max-width: 1023px) {
+  html {
+    --page-padding: 16px;
+  }
+}
+
+// Shared page pieces used by every feature view.
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+
+  h1 {
+    margin: 0;
+    font: var(--mat-sys-headline-small);
+  }
+
+  p {
+    margin: 4px 0 0;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.state-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--mat-sys-on-surface-variant);
+
+  .state-icon {
+    width: 56px;
+    height: 56px;
+    font-size: 56px;
+    color: var(--mat-sys-outline);
+  }
+
+  &--error .state-icon {
+    color: var(--mat-sys-error);
+  }
+
+  h2 {
+    margin: 0;
+    font: var(--mat-sys-title-medium);
+    color: var(--mat-sys-on-surface);
+  }
+
+  p {
+    margin: 0;
+    max-width: 480px;
+  }
+}
+
+.skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  height: 220px;
+}
+
+.skeleton-table {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+
+  @each $status in completed, failed, running, created {
+    &--#{$status} {
+      color: var(--status-#{$status});
+      background: var(--status-#{$status}-bg);
+    }
+  }
+}

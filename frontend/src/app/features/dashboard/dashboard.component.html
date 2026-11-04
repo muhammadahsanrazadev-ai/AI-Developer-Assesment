@@ -1,0 +1,148 @@
+<header class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>AI search visibility across all business profiles.</p>
+  </div>
+  <div class="header-actions">
+    <button mat-stroked-button type="button" (click)="load()" [disabled]="loading()">
+      <mat-icon>refresh</mat-icon>
+      Refresh
+    </button>
+    <a mat-flat-button routerLink="/profiles/new">
+      <mat-icon>add</mat-icon>
+      Add New Business Profile
+    </a>
+  </div>
+</header>
+
+@if (loading()) {
+  <div role="status" aria-label="Loading dashboard">
+    <section class="stats-grid">
+      @for (card of [1, 2, 3]; track card) {
+        <mat-card appearance="outlined" class="stat-card">
+          <app-skeleton width="40px" height="40px" />
+          <div class="skeleton-stack">
+            <app-skeleton width="72px" height="28px" />
+            <app-skeleton width="140px" height="14px" />
+          </div>
+        </mat-card>
+      }
+    </section>
+    <div class="lists-grid">
+      @for (list of [1, 2]; track list) {
+        <mat-card appearance="outlined">
+          <mat-card-content>
+            <div class="skeleton-stack">
+              <app-skeleton width="180px" height="20px" />
+              @for (row of [1, 2, 3, 4]; track row) {
+                <app-skeleton height="36px" />
+              }
+            </div>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  </div>
+} @else if (error()) {
+  <mat-card appearance="outlined">
+    <div class="state-panel state-panel--error" role="alert">
+      <mat-icon class="state-icon">cloud_off</mat-icon>
+      <h2>Could not load the dashboard</h2>
+      <p>{{ error() }}</p>
+      <button mat-flat-button type="button" (click)="load()">Try again</button>
+    </div>
+  </mat-card>
+} @else {
+  @if (stats(); as stats) {
+    <section class="stats-grid" aria-label="Summary stats">
+      <mat-card appearance="outlined" class="stat-card">
+        <mat-icon class="stat-icon">business</mat-icon>
+        <div>
+          <div class="stat-value">{{ stats.total_profiles | number }}</div>
+          <div class="stat-label">Total profiles</div>
+        </div>
+      </mat-card>
+      <mat-card appearance="outlined" class="stat-card">
+        <mat-icon class="stat-icon">travel_explore</mat-icon>
+        <div>
+          <div class="stat-value">{{ stats.total_queries_discovered | number }}</div>
+          <div class="stat-label">Total queries discovered</div>
+        </div>
+      </mat-card>
+      <mat-card appearance="outlined" class="stat-card">
+        <mat-icon class="stat-icon">trending_up</mat-icon>
+        <div>
+          <div class="stat-value">
+            {{ stats.avg_opportunity_score === null ? '—' : (stats.avg_opportunity_score | number: '1.2-2') }}
+          </div>
+          <div class="stat-label">Avg opportunity score</div>
+        </div>
+      </mat-card>
+    </section>
+  }
+
+  <div class="lists-grid">
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>Recent pipeline runs</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (runs().length === 0) {
+          <div class="state-panel">
+            <mat-icon class="state-icon">history</mat-icon>
+            <h2>No pipeline runs yet</h2>
+            <p>Open a business profile and press “Run Pipeline” to discover queries.</p>
+          </div>
+        } @else {
+          <ul class="item-list">
+            @for (run of runs(); track run.run_uuid) {
+              <li>
+                <a class="item-link" [routerLink]="['/profiles', run.profile_uuid]">
+                  <div class="item-main">
+                    <span class="item-title">{{ run.profile_name }}</span>
+                    <span class="item-meta">
+                      {{ run.started_at | date: 'medium' }} ·
+                      {{ run.queries_scored }}/{{ run.queries_discovered }} scored ·
+                      {{ run.tokens_used | number }} tokens
+                    </span>
+                  </div>
+                  <span class="status-chip" [class]="'status-chip--' + run.status">{{ run.status }}</span>
+                </a>
+              </li>
+            }
+          </ul>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>Business profiles</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (profiles().length === 0) {
+          <div class="state-panel">
+            <mat-icon class="state-icon">add_business</mat-icon>
+            <h2>No business profiles yet</h2>
+            <p>Create your first profile to start tracking its AI search visibility.</p>
+            <a mat-flat-button routerLink="/profiles/new">Add New Business Profile</a>
+          </div>
+        } @else {
+          <ul class="item-list">
+            @for (profile of profiles(); track profile.profile_uuid) {
+              <li>
+                <a class="item-link" [routerLink]="['/profiles', profile.profile_uuid]">
+                  <div class="item-main">
+                    <span class="item-title">{{ profile.name }}</span>
+                    <span class="item-meta">{{ profile.domain }} · {{ profile.industry }}</span>
+                  </div>
+                  <span class="status-chip" [class]="'status-chip--' + profile.status">{{ profile.status }}</span>
+                </a>
+              </li>
+            }
+          </ul>
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+}

@@ -1,0 +1,51 @@
+---
+description: Flask API structure, endpoints, HTTP status codes, error format, CORS, and configuration for the backend
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend — Flask API
+
+## Structure
+- `backend/app/__init__.py` exposes `create_app()` (app factory). No module-level app object.
+- Extensions (SQLAlchemy, Migrate, CORS) are created unbound and initialised inside `create_app()`.
+- Routes live in Blueprints: `app/api/profiles.py` and `app/api/queries.py`, registered
+  under the `/api/v1` prefix.
+- Blueprints stay thin: parse/validate input → call a service → serialise output.
+  Pipeline logic lives in `app/services/pipeline.py`; scoring math in `app/utils/scoring.py`.
+
+## Endpoints (exactly these; extra ones only after user confirms a spec gap)
+```
+POST /api/v1/profiles
+GET  /api/v1/profiles/<profile_uuid>
+POST /api/v1/profiles/<profile_uuid>/run
+GET  /api/v1/profiles/<profile_uuid>/queries   ?min_score= &status=visible|not_visible|unknown &page= &per_page=
+GET  /api/v1/profiles/<profile_uuid>/recommendations
+POST /api/v1/queries/<query_uuid>/recheck
+```
+- All responses are JSON. No auth layer.
+- Validate the `POST /profiles` body: `name`, `domain`, `industry`, `description`,
+  `competitors` (list of strings). `domain` matches the frontend validator: bare domain,
+  no scheme (`surferseo.com`, not `http://surferseo.com`).
+- Validate query params: `min_score` float in 0–1, `status` in the three allowed values,
+  `page`/`per_page` positive integers. Invalid values → 400, not a 500.
+- Paginated responses include the items plus pagination metadata (page, per_page, total)
+  so MatPaginator can render correctly.
+
+## Status codes
+- 200 read/update OK · 201 resource created · 400 invalid input/params ·
+  404 unknown profile/query UUID · 409 conflicting state · 500 unexpected server error ·
+  502 upstream LLM failure that could not be recovered.
+- Use exactly one error shape everywhere, produced by registered error handlers:
+```json
+{ "error": { "code": "not_found", "message": "Profile not found", "details": {} } }
+```
+- Never return HTML error pages or raw tracebacks. Register JSON handlers for 400/404/405/500.
+
+## CORS & config
+- Enable CORS with `flask-cors` for the `/api/*` routes so the Angular app
+  (`http://localhost:4200` in dev) can call the API.
+- Load config from environment via `python-dotenv`. Variables from the spec:
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `FLASK_ENV`, `SECRET_KEY`.
+- No secrets or keys in code. `backend/.env.example` lists every variable used.
+- The API serves on port 5000 (frontend `environment.ts` uses `http://localhost:5000`).

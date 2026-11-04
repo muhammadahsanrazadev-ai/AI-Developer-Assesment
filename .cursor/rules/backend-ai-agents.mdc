@@ -1,0 +1,59 @@
+---
+description: Rules for the three AI agents, prompt engineering, LLM JSON validation, the pipeline orchestrator, partial-failure handling, and the opportunity score
+globs: backend/app/agents/**/*.py,backend/app/services/**/*.py,backend/app/utils/**/*.py
+alwaysApply: false
+---
+
+# Backend — AI Agents & Pipeline
+
+For step-by-step implementation guidance, use the `ai-agent-pipeline` skill.
+
+## Agent separation (graded: 20 pts)
+- Exactly three agent classes, each in its own file, each with one responsibility:
+  - `agents/discovery.py` — Query Discovery Agent: profile (domain, industry, competitors)
+    → 10–20 realistic questions users ask AI assistants.
+  - `agents/scoring.py` — Visibility Scoring Agent: one query + target domain → simulated
+    check of whether the domain appears in an AI answer, plus estimated search volume,
+    competitive difficulty (0–100), and inputs for the opportunity score.
+  - `agents/recommendation.py` — Content Recommendation Agent: top-scoring queries where
+    the domain is NOT visible → 3–5 recommendations (what to create, why, keywords).
+- `agents/base.py` holds the shared mechanics only: LLM client call, JSON extraction,
+  schema validation, retry/fallback, token accounting. No business logic in the base.
+- Agents never touch the database or Flask request objects. They take plain inputs and
+  return validated plain data. Persistence belongs to the orchestrator.
+
+## LLM provider
+- Use OpenAI (GPT-4o) or Anthropic (Claude), selected via config; the choice and reason
+  go in the README. API keys come from the environment only.
+
+## Prompts (graded: 15 pts)
+- Each agent has a specific system prompt that states the role, the inputs, and an
+  explicit JSON schema for the output (field names, types, ranges, allowed enums).
+- Prompts demand JSON only — no prose, no markdown fences.
+- Keep prompts as named constants/templates in the agent module, not inline f-strings
+  scattered through logic.
+
+## Validation (no crashes on bad LLM output)
+- Every LLM response is parsed and validated against the agent's schema before use.
+- Handle: invalid JSON, markdown-wrapped JSON, missing fields, wrong types, out-of-range
+  numbers, wrong enum values, wrong item counts.
+- On failure: bounded retry, then a documented fallback (skip item / safe default / mark
+  failed). Never raise an unhandled exception into the request cycle.
+- Clamp or reject values outside spec ranges; never persist an invalid score.
+
+## Orchestrator (`services/pipeline.py`)
+- Creates the `PipelineRun`, runs Agent 1 → Agent 2 (per query) → Agent 3, and persists
+  results.
+- Partial failure: one failed query scoring must not abort the run. Continue with the rest,
+  count successes in `queries_scored`, and record failures in `error_message`.
+- Always finalise the run: set `status`, `completed_at`, `queries_discovered`,
+  `queries_scored`, and accumulated `tokens_used` (from the provider's usage data),
+  even when the run fails.
+- Recheck (`POST /queries/{uuid}/recheck`) reuses the Visibility Scoring Agent for a single
+  query and updates that query in place.
+
+## Opportunity score (graded: 5 pts)
+- Implemented as a pure function in `utils/scoring.py`, output 0.0–1.0.
+- Multi-factor, built on the spec's concept "search volume × competitive gap"; must produce
+  meaningful ordering. The exact formula is a design decision: agree it with the user and
+  document it (with a worked example) in the README.

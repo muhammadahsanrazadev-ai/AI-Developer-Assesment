@@ -1,0 +1,86 @@
+<header class="page-header">
+  <div>
+    <h1>New Business Profile</h1>
+    <p>Tell us about the business. The pipeline uses this to discover the queries its customers ask AI assistants.</p>
+  </div>
+</header>
+
+<mat-card appearance="outlined" class="form-card">
+  <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+    <div class="form-grid">
+      <mat-form-field appearance="outline">
+        <mat-label>Business Name</mat-label>
+        <input matInput formControlName="name" autocomplete="organization" maxlength="255" />
+        <mat-error>{{ errorMessage(form.controls.name) }}</mat-error>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Domain</mat-label>
+        <input matInput formControlName="domain" placeholder="example.com" autocomplete="off" spellcheck="false" />
+        <mat-hint>Domain only, e.g. example.com (no http://)</mat-hint>
+        <mat-error>{{ errorMessage(form.controls.domain) }}</mat-error>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline">
+        <mat-label>Industry</mat-label>
+        <input matInput formControlName="industry" placeholder="e.g. SEO software" maxlength="255" />
+        <mat-error>{{ errorMessage(form.controls.industry) }}</mat-error>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Description</mat-label>
+        <textarea
+          matInput
+          formControlName="description"
+          rows="4"
+          maxlength="5000"
+          placeholder="What the business does, who it serves, what makes it different"
+        ></textarea>
+        <mat-hint align="end">{{ form.controls.description.value.length }} / 5000</mat-hint>
+        <mat-error>{{ errorMessage(form.controls.description) }}</mat-error>
+      </mat-form-field>
+
+      <mat-form-field appearance="outline" class="full-width">
+        <mat-label>Competitors</mat-label>
+        <mat-chip-grid
+          #competitorGrid
+          formControlName="competitors"
+          aria-label="Competitor domains"
+          [errorStateMatcher]="competitorsErrorMatcher"
+        >
+          @for (competitor of form.controls.competitors.value; track competitor) {
+            <mat-chip-row (removed)="removeCompetitor(competitor)">
+              {{ competitor }}
+              <button matChipRemove type="button" [attr.aria-label]="'Remove ' + competitor">
+                <mat-icon>cancel</mat-icon>
+              </button>
+            </mat-chip-row>
+          }
+          <input
+            placeholder="Add a competitor domain and press Enter"
+            spellcheck="false"
+            [matChipInputFor]="competitorGrid"
+            [matChipInputSeparatorKeyCodes]="separatorKeys"
+            [matChipInputAddOnBlur]="true"
+            (matChipInputTokenEnd)="addCompetitor($event)"
+            (input)="clearCompetitorEntryError()"
+          />
+        </mat-chip-grid>
+        <mat-hint>Optional · up to {{ maxCompetitors }} domains · press Enter or comma to add</mat-hint>
+        <mat-error>{{ competitorEntryError() ?? errorMessage(form.controls.competitors) }}</mat-error>
+      </mat-form-field>
+    </div>
+
+    <div class="form-actions">
+      <a mat-button routerLink="/">Cancel</a>
+      <button mat-flat-button type="submit" [disabled]="submitting()">
+        @if (submitting()) {
+          <mat-spinner diameter="18" class="button-spinner" />
+          Creating…
+        } @else {
+          Create Profile
+        }
+      </button>
+    </div>
+  </form>
+</mat-card>

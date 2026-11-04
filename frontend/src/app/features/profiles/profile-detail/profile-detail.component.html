@@ -1,0 +1,165 @@
+@if (loading()) {
+  <div role="status" aria-label="Loading profile">
+    <header class="page-header">
+      <div class="skeleton-stack">
+        <app-skeleton width="240px" height="32px" />
+        <app-skeleton width="180px" height="16px" />
+      </div>
+      <app-skeleton width="148px" height="40px" />
+    </header>
+    <div class="overview-grid">
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <div class="skeleton-stack">
+            <app-skeleton width="80px" height="20px" />
+            <app-skeleton height="48px" />
+            <app-skeleton width="70%" height="32px" />
+          </div>
+        </mat-card-content>
+      </mat-card>
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <div class="skeleton-stack">
+            <app-skeleton width="180px" height="20px" />
+            <app-skeleton height="88px" />
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  </div>
+} @else if (error(); as error) {
+  <mat-card appearance="outlined">
+    <div class="state-panel state-panel--error" role="alert">
+      <mat-icon class="state-icon">{{ error.status === 404 ? 'search_off' : 'cloud_off' }}</mat-icon>
+      <h2>{{ error.status === 404 ? 'Profile not found' : 'Could not load this profile' }}</h2>
+      <p>{{ error.message }}</p>
+      <div class="state-actions">
+        <a mat-stroked-button routerLink="/">Back to dashboard</a>
+        @if (error.status !== 404) {
+          <button mat-flat-button type="button" (click)="load()">Try again</button>
+        }
+      </div>
+    </div>
+  </mat-card>
+} @else if (profile(); as profile) {
+  <header class="page-header">
+    <div>
+      <h1>
+        {{ profile.name }}
+        <span class="status-chip" [class]="'status-chip--' + profile.status">{{ profile.status }}</span>
+      </h1>
+      <p>
+        <a class="domain-link" [href]="'https://' + profile.domain" target="_blank" rel="noopener noreferrer">
+          {{ profile.domain }}
+          <mat-icon inline>open_in_new</mat-icon>
+        </a>
+        · {{ profile.industry }}
+      </p>
+    </div>
+    <button
+      mat-flat-button
+      type="button"
+      class="run-button"
+      (click)="runPipeline()"
+      [disabled]="running()"
+    >
+      @if (running()) {
+        <mat-progress-spinner mode="indeterminate" diameter="18" class="button-spinner" />
+      } @else {
+        <mat-icon>play_arrow</mat-icon>
+      }
+      {{ running() ? 'Pipeline running…' : 'Run Pipeline' }}
+    </button>
+  </header>
+
+  <div class="overview-grid">
+    <mat-card appearance="outlined">
+      <mat-card-header>
+        <mat-card-title>Profile</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <p class="description">{{ profile.description }}</p>
+        <h3 class="section-label">Competitors</h3>
+        @if (profile.competitors.length) {
+          <mat-chip-set aria-label="Competitors">
+            @for (competitor of profile.competitors; track competitor) {
+              <mat-chip>{{ competitor }}</mat-chip>
+            }
+          </mat-chip-set>
+        } @else {
+          <p class="muted">No competitors added.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined" class="run-card">
+      <mat-card-header>
+        <mat-card-title>Latest pipeline run</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (running()) {
+          <div class="run-progress" role="status" aria-live="polite">
+            <mat-progress-spinner mode="indeterminate" diameter="40" />
+            <div>
+              <div class="run-progress-title">
+                {{ (latestRun()?.queries_discovered ?? 0) === 0 ? 'Discovering queries…' : 'Scoring visibility…' }}
+              </div>
+              <div class="muted">
+                {{ latestRun()?.queries_scored ?? 0 }} / {{ latestRun()?.queries_discovered ?? 0 }} queries scored
+              </div>
+            </div>
+          </div>
+        } @else if (trackingLost()) {
+          <div class="state-panel state-panel--error compact" role="alert">
+            <mat-icon class="state-icon">sync_problem</mat-icon>
+            <p>The pipeline may still be running, but its status could not be checked.</p>
+            <button mat-stroked-button type="button" (click)="load()">Refresh status</button>
+          </div>
+        } @else if (finishedRun(); as run) {
+          <div class="summary-header">
+            <span class="status-chip" [class]="'status-chip--' + run.status">{{ run.status }}</span>
+            <span class="muted">{{ (run.completed_at ?? run.started_at) | date: 'medium' }}</span>
+          </div>
+          <dl class="summary-stats">
+            <div>
+              <dt>Queries discovered</dt>
+              <dd>{{ run.queries_discovered | number }}</dd>
+            </div>
+            <div>
+              <dt>Queries scored</dt>
+              <dd>{{ run.queries_scored | number }}</dd>
+            </div>
+            <div>
+              <dt>Tokens used</dt>
+              <dd>{{ run.tokens_used | number }}</dd>
+            </div>
+          </dl>
+          @if (run.error_message) {
+            <p class="run-message" [class.run-message--error]="run.status === 'failed'">
+              <mat-icon inline>{{ run.status === 'failed' ? 'error' : 'warning' }}</mat-icon>
+              {{ run.error_message }}
+            </p>
+          }
+        } @else {
+          <div class="state-panel compact">
+            <mat-icon class="state-icon">rocket_launch</mat-icon>
+            <p>No runs yet. Press “Run Pipeline” to discover the queries this business should rank for.</p>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <nav mat-tab-nav-bar [tabPanel]="tabPanel" class="detail-tabs">
+    @for (tab of tabs; track tab.path) {
+      <a mat-tab-link [routerLink]="tab.path" routerLinkActive #rla="routerLinkActive" [active]="rla.isActive">
+        <mat-icon class="tab-icon">{{ tab.icon }}</mat-icon>
+        {{ tab.label }}
+      </a>
+    }
+  </nav>
+
+  <mat-tab-nav-panel #tabPanel class="detail-panel" [@routeAnimations]="routeAnimationState(childOutlet)">
+    <router-outlet #childOutlet="outlet" />
+  </mat-tab-nav-panel>
+}
