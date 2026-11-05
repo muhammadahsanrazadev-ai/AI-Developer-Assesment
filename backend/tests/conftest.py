@@ -22,6 +22,22 @@ PROFILE_PAYLOAD = {
     "description": "AI-powered SEO content optimization tool",
     "competitors": ["clearscope.io", "marketmuse.com", "frase.io"],
 }
+SEO_OFFERING = {
+    "label": "SEO content optimization",
+    "profile_quote": "SEO content optimization",
+}
+
+
+def discovery_payload(questions: list[str], *, intent: str = "find_provider",
+                      offering: dict | None = None) -> str:
+    chosen = offering or SEO_OFFERING
+    return json.dumps({
+        "offerings": [chosen],
+        "queries": [
+            {"query_text": question, "offering_label": chosen["label"], "intent": intent}
+            for question in questions
+        ],
+    })
 
 
 class FakeLLM:
@@ -43,8 +59,8 @@ class FakeLLM:
         if system_prompt == DISCOVERY_SYSTEM_PROMPT:
             if self.discovery_error:
                 raise LLMClientError("AuthenticationError: invalid api key")
-            queries = [{"query_text": f"What is the best SEO tool for case {i}?"} for i in range(12)]
-            return LLMResponse(json.dumps({"queries": queries}), 100)
+            questions = [f"What is the best SEO tool for case {i}?" for i in range(12)]
+            return LLMResponse(discovery_payload(questions), 100)
 
         if system_prompt == SCORING_SYSTEM_PROMPT:
             question = json.loads(user_message.split("\n\nYour previous")[0])["question"]

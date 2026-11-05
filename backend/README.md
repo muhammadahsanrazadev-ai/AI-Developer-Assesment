@@ -336,15 +336,18 @@ build user message → LLM call (JSON mode) → strip ``` fences → json.loads
 
 ### 1. Query Discovery Agent (`agents/discovery.py`)
 
-* **Input:** name, domain, industry, description, competitors.
-* **Output:** `{"queries": [string, …]}` with 10–20 natural-language questions.
-* **Prompt:** asks for questions a real customer would type into ChatGPT / Claude /
-  Perplexity, with an intent mix: about 40 % category ("best X for Y"), 25 % how-to /
-  problem, 25 % comparison / alternatives (using the competitors), and at most 3 that name
-  the business. No years or dates, so the queries stay evergreen.
-* **Post-validation:** trims and de-duplicates (case-insensitive), requires at least 10, and
-  caps branded questions in code (the model did not always respect the prompt in testing).
-* Temperature 0.7 for variety.
+* **Input:** name, domain, industry, description. Competitors stay stored on the profile and
+  are not sent to the model.
+* **Output saved:** 10–20 `query_text` strings. The model also returns `offerings` and, on
+  each question, `offering_label` and `intent`. Those fields are checked and then discarded.
+* **Prompt:** works for any industry. The model copies a `profile_quote` from the industry or
+  description, then writes buyer questions that may use synonyms. At most 3 questions use the
+  exact registered name. No competitor names, definitions, or DIY tutorials.
+* **Post-validation:** every kept question must point at an offering grounded in the profile,
+  and it must be a buyer question. Missing `?` is added. Competitor names are matched on
+  word boundaries. Invalid questions are dropped. The run fails only when fewer than 10
+  valid questions remain; the agent retries once and a second failure saves nothing.
+* Temperature 0.4 so the model stays closer to the plan instead of inventing extra wording.
 
 ### 2. Visibility Scoring Agent (`agents/scoring.py`)
 

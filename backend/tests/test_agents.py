@@ -9,7 +9,12 @@ from app.agents import (
     VisibilityScoringAgent,
 )
 from app.agents.base import LLMResponse, extract_json
-from tests.conftest import PROFILE_PAYLOAD
+from app.agents.base import AgentOutputError
+from app.agents.discovery import (
+    DiscoveryOutput,
+    validate_business_relevance,
+)
+from tests.conftest import PROFILE_PAYLOAD, discovery_payload
 
 
 class Scripted:
@@ -26,8 +31,8 @@ class Scripted:
 
 
 def discovery_json(n: int) -> str:
-    return json.dumps({"queries": [{"query_text": f"Which SEO tool fits use case {i}?"}
-                                   for i in range(n)]})
+    questions = [f"Which provider is the best SEO tool for use case {i}?" for i in range(n)]
+    return discovery_payload(questions)
 
 
 def scoring_json(**overrides) -> str:
@@ -66,6 +71,107 @@ def test_persistently_bad_output_returns_failure_instead_of_raising():
     assert not result.ok
     assert "at least 10" in result.error
     assert llm.calls == 2
+
+
+def _relevance(questions: list[str], **overrides):
+    payload = json.loads(discovery_payload(questions, **overrides))
+    output = DiscoveryOutput.model_validate(payload)
+    profile = dict(PROFILE_PAYLOAD)
+    return validate_business_relevance(
+        output, name=profile["name"], domain=profile["domain"], industry=profile["industry"],
+        description=profile["description"], competitors=profile["competitors"],
+    )
+
+
+def test_synonym_question_is_accepted_without_copying_the_profile_words():
+    questions = [f"Who can help improve our search rankings for case {i}?" for i in range(9)]
+    questions.append("Who should I hire to improve our search rankings?")
+    saved = _relevance(questions)
+
+    assert "SEO content optimization" not in saved[-1]
+    assert saved[-1].startswith("Who should I hire")
+
+
+def test_buyer_phrases_pass_and_a_definition_labeled_hire_fails():
+    questions = [f"Where can I find a provider for case {i}?" for i in range(10)]
+    assert len(_relevance(questions)) == 10
+
+    commercial = questions[:-1] + ["Does Surfer SEO provide SEO content optimization?"]
+    assert "Does Surfer SEO provide SEO content optimization?" in _relevance(commercial)
+
+    choose = questions[:-1] + ["How do I choose an SEO tool?"]
+    assert "How do I choose an SEO tool?" in _relevance(choose)
+
+    lesson = questions[:-1] + ["What is involved in SEO?"]
+    with pytest.raises(AgentOutputError, match="buyer question"):
+        _relevance(lesson, intent="hire")
+
+    diy = questions[:-1] + ["How do I build an SEO tool?"]
+    with pytest.raises(AgentOutputError, match="buyer question"):
+        _relevance(diy)
+
+    missing_marks = [f"Where can I find a provider for case {i}" for i in range(10)]
+    saved = _relevance(missing_marks)
+    assert len(saved) == 10 and all(question.endswith("?") for question in saved)
+
+    mixed = missing_marks + ["Clearscope vs MarketMuse: which provider is best"]
+    assert len(_relevance(mixed)) == 10
+
+
+def test_competitor_stems_use_word_boundaries():
+    good = [f"Which provider is the best SEO tool for case {i}?" for i in range(9)]
+    good.append("Who should I hire for a smart museum exhibit?")
+    assert len(_relevance(good)) == 10
+
+    software = good[:-1] + ["Which provider is best for arbisoftware?"]
+    profile_competitors = ["arbisoft.com"]
+    output = DiscoveryOutput.model_validate(json.loads(discovery_payload(software)))
+    saved = validate_business_relevance(
+        output, name="Surfer SEO", domain="surferseo.com", industry="SEO Software",
+        description=PROFILE_PAYLOAD["description"], competitors=profile_competitors,
+    )
+    assert any("arbisoftware" in question for question in saved)
+
+    named = good[:-1] + ["Which provider is best, Arbisoft?"]
+    output = DiscoveryOutput.model_validate(json.loads(discovery_payload(named)))
+    with pytest.raises(AgentOutputError, match="competitor"):
+        validate_business_relevance(
+            output, name="Surfer SEO", domain="surferseo.com", industry="SEO Software",
+            description=PROFILE_PAYLOAD["description"], competitors=profile_competitors,
+        )
+
+    versus = good[:-1] + ["Clearscope vs MarketMuse: which provider is best?"]
+    with pytest.raises(AgentOutputError, match="competitor"):
+        _relevance(versus)
+
+
+def test_offering_quote_must_be_copied_from_the_profile():
+    questions = [f"Which provider is the best SEO tool for case {i}?" for i in range(10)]
+    with pytest.raises(AgentOutputError, match="profile_quote"):
+        _relevance(questions, offering={"label": "Catering", "profile_quote": "catering"})
+
+    paraphrased = _relevance(
+        questions, offering={"label": "SEO content optimization", "profile_quote": "SEO content optimisation"})
+    assert len(paraphrased) == 10
+
+    extra = json.loads(discovery_payload(questions))
+    extra["offerings"].append({"label": "Catering", "profile_quote": "catering"})
+    output = DiscoveryOutput.model_validate(extra)
+    saved = validate_business_relevance(
+        output, name=PROFILE_PAYLOAD["name"], domain=PROFILE_PAYLOAD["domain"],
+        industry=PROFILE_PAYLOAD["industry"], description=PROFILE_PAYLOAD["description"],
+        competitors=PROFILE_PAYLOAD["competitors"],
+    )
+    assert len(saved) == 10
+
+
+def test_malformed_discovery_schema_is_retried_then_succeeds():
+    missing_fields = json.dumps({"queries": [{"query_text": "Who should I hire for SEO?"}]})
+    llm = Scripted(missing_fields, discovery_json(12))
+    result = QueryDiscoveryAgent(llm).run(**PROFILE_PAYLOAD)
+
+    assert result.ok and len(result.data) == 12
+    assert result.attempts == 2
 
 
 def test_provider_error_is_returned_as_failure():
