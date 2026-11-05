@@ -26,11 +26,8 @@
   <mat-card appearance="outlined">
     <div class="state-panel">
       <mat-icon class="state-icon empty-illustration">tips_and_updates</mat-icon>
-      <h2>No recommendations yet</h2>
-      <p>
-        Run the pipeline and the Content Recommendation Agent will suggest blog posts, landing pages and FAQs
-        for the queries where this business is not visible.
-      </p>
+      <h2>{{ emptyTitle() }}</h2>
+      <p>{{ emptyMessage() }}</p>
     </div>
   </mat-card>
 } @else {
@@ -70,6 +67,9 @@
             </div>
           </mat-card-header>
           <mat-card-content>
+            @if (item.query_text) {
+              <p class="rec-query">{{ item.query_text }}</p>
+            }
             <h3 class="rec-title">{{ item.title }}</h3>
             <p class="rec-rationale">{{ item.rationale }}</p>
             <mat-chip-set aria-label="Target keywords">

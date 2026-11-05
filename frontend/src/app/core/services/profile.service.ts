@@ -9,10 +9,7 @@ import {
   PlatformStats,
   ProfileListResponse,
 } from '../../shared/models/profile.model';
-import {
-  ContentRecommendation,
-  RecommendationListResponse,
-} from '../../shared/models/recommendation.model';
+import { RecommendationListResponse } from '../../shared/models/recommendation.model';
 import { rethrowApiError } from './api-error';
 
 @Injectable({ providedIn: 'root' })
@@ -39,13 +36,10 @@ export class ProfileService {
       .pipe(catchError(rethrowApiError));
   }
 
-  getRecommendations(profileUuid: string): Observable<ContentRecommendation[]> {
+  getRecommendations(profileUuid: string): Observable<RecommendationListResponse> {
     return this.http
       .get<RecommendationListResponse>(`${this.baseUrl}/profiles/${profileUuid}/recommendations`)
-      .pipe(
-        map((response) => response.items),
-        catchError(rethrowApiError),
-      );
+      .pipe(catchError(rethrowApiError));
   }
 
   getStats(): Observable<PlatformStats> {

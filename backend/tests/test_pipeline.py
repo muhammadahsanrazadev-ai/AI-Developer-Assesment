@@ -3,6 +3,7 @@ import pytest
 from app import APIError, db
 from app.models import ContentRecommendation, DiscoveredQuery, PipelineRun
 from app.services import pipeline
+from app.utils.scoring import priority_for_score
 from tests.conftest import FakeLLM
 
 
@@ -68,3 +69,18 @@ def test_recheck_failure_raises_502_and_keeps_existing_score(profile):
 
     assert exc.value.status == 502
     assert query.opportunity_score == before
+
+
+def test_recheck_refreshes_recommendations_for_the_run(profile):
+    run = run_with(profile, FakeLLM())
+    query = DiscoveredQuery.query.filter_by(run_uuid=run.uuid, domain_visible=False).first()
+
+    pipeline.recheck_query(query, llm_client=FakeLLM())
+    db.session.expire_all()
+
+    recommendations = ContentRecommendation.query.filter_by(profile_uuid=profile.uuid).all()
+    assert len(recommendations) == 4
+    assert all(
+        item.priority == priority_for_score(item.target_query.opportunity_score)
+        for item in recommendations
+    )

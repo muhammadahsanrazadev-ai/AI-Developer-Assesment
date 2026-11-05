@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
@@ -68,7 +69,9 @@ class VisibilityScoringAgent(BaseAgent):
 
     def post_validate(self, output: ScoringOutput, *, target_domain: str,
                       target_name: str | None = None, **_ignored) -> VisibilityScore:
-        position = find_position(output.mentioned_brands, target_domain, target_name)
+        position = find_position(
+            output.mentioned_brands, target_domain, target_name, output.simulated_answer,
+        )
         return VisibilityScore(
             estimated_search_volume=output.estimated_search_volume,
             competitive_difficulty=output.competitive_difficulty,
@@ -78,13 +81,79 @@ class VisibilityScoringAgent(BaseAgent):
         )
 
 
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
+
+def _fold(value: str) -> str:
+    return _NON_ALNUM.sub("", value.lower())
+
+
+def names_match(candidate: str, business_name: str) -> bool:
+    """True when the two names are the same brand, ignoring case, spaces, and hyphens.
+
+    A shorter form matches when it is a prefix of the longer one and has at least
+    four characters, so "Surfer" and "SurferSEO" both match "Surfer SEO".
+    """
+    left = _fold(candidate)
+    right = _fold(business_name)
+    if len(left) < 4 or len(right) < 4:
+        return False
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    return longer.startswith(shorter)
+
+
+def _mention_span(answer: str, domain: str, name: str) -> tuple[int, int] | None:
+    spans: list[tuple[int, int]] = []
+    if domain:
+        match = re.search(rf"(?<![a-z0-9]){re.escape(domain)}(?![a-z0-9])", answer, re.IGNORECASE)
+        if match:
+            spans.append(match.span())
+    tokens = [token for token in _NON_ALNUM.split(name.lower()) if token]
+    if tokens:
+        flexible = r"[\s\-]*".join(re.escape(token) for token in tokens)
+        match = re.search(rf"\b{flexible}\b", answer, re.IGNORECASE)
+        if match:
+            spans.append(match.span())
+        if len(tokens[0]) >= 4:
+            match = re.search(rf"\b{re.escape(tokens[0])}\b", answer, re.IGNORECASE)
+            if match:
+                spans.append(match.span())
+    if not spans:
+        return None
+    return min(spans)
+
+
+def _brand_span(answer: str, brand: MentionedBrand) -> tuple[int, int] | None:
+    spans: list[tuple[int, int]] = []
+    domain = normalise_domain(brand.domain) if brand.domain else ""
+    if domain:
+        match = re.search(rf"(?<![a-z0-9]){re.escape(domain)}(?![a-z0-9])", answer, re.IGNORECASE)
+        if match:
+            spans.append(match.span())
+    if brand.name.strip():
+        match = re.search(rf"\b{re.escape(brand.name.strip())}\b", answer, re.IGNORECASE)
+        if match:
+            spans.append(match.span())
+    if not spans:
+        return None
+    return min(spans)
+
+
 def find_position(brands: list[MentionedBrand], target_domain: str,
-                  target_name: str | None) -> int | None:
+                  target_name: str | None, simulated_answer: str = "") -> int | None:
     domain = normalise_domain(target_domain)
-    name = (target_name or "").strip().lower()
+    name = target_name or ""
     for index, brand in enumerate(brands, start=1):
         if brand.domain and normalise_domain(brand.domain) == domain:
             return index
-        if name and brand.name.strip().lower() == name:
+        if name and names_match(brand.name, name):
             return index
-    return None
+
+    span = _mention_span(simulated_answer, domain, name)
+    if span is None:
+        return None
+    earlier = sum(
+        1 for brand in brands
+        if (brand_span := _brand_span(simulated_answer, brand)) is not None and brand_span[0] < span[0]
+    )
+    return earlier + 1

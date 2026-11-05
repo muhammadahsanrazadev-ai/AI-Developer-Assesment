@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.agents.base import AgentOutputError, BaseAgent
+from app.utils.scoring import priority_for_score
 
 MIN_RECOMMENDATIONS = 3
 MAX_RECOMMENDATIONS = 5
@@ -14,9 +15,10 @@ getting a brand cited in answers from AI assistants (ChatGPT, Claude, Perplexity
 You receive a business profile and a list of high-opportunity user questions where the \
 business is currently NOT mentioned in AI answers. Each question has a "query_uuid".
 
-Task: produce {MIN_RECOMMENDATIONS}-{MAX_RECOMMENDATIONS} specific, actionable content \
+Task: produce up to {MAX_RECOMMENDATIONS} specific, actionable content \
 recommendations that would make AI assistants more likely to mention this business for those \
-questions.
+questions. Aim for at least {MIN_RECOMMENDATIONS} when the questions support it. If you can \
+ground fewer, still return every valid recommendation rather than padding.
 
 Each recommendation must:
 - Target exactly one of the provided questions via its "query_uuid" (copy it verbatim).
@@ -25,7 +27,8 @@ Each recommendation must:
 referencing the question's intent and the competitors that currently own it).
 - Choose "content_type" from: "blog_post", "landing_page", "faq".
 - List 3-8 "target_keywords" (lowercase search phrases).
-- Set "priority" to "high", "medium", or "low" based on opportunity score and effort.
+- Set "priority" from that question's opportunity_score: "high" at 0.7 or above, \
+"medium" from 0.4 to 0.69, and "low" below 0.4.
 Prefer the highest-opportunity questions. Avoid generic advice. Do not include years or \
 dates in titles.
 Titles must match how users phrase the question at category level (e.g. "How to Optimize \
@@ -80,6 +83,7 @@ class ContentRecommendationAgent(BaseAgent):
     def post_validate(self, output: RecommendationOutput, *, gap_queries: list[dict],
                       **_ignored) -> list[dict]:
         allowed = {q["query_uuid"] for q in gap_queries}
+        scores = {q["query_uuid"]: q.get("opportunity_score") for q in gap_queries}
         valid = []
         for item in output.recommendations:
             if item.target_query_uuid not in allowed:
@@ -87,11 +91,15 @@ class ContentRecommendationAgent(BaseAgent):
             keywords = list(dict.fromkeys(k.strip().lower() for k in item.target_keywords if k.strip()))
             if not keywords:
                 continue
-            valid.append(item.model_copy(update={"target_keywords": keywords}).model_dump())
+            score = scores.get(item.target_query_uuid)
+            priority = priority_for_score(score) if isinstance(score, (int, float)) else item.priority
+            valid.append(item.model_copy(update={
+                "target_keywords": keywords,
+                "priority": priority,
+            }).model_dump())
 
-        if len(valid) < MIN_RECOMMENDATIONS:
+        if not valid:
             raise AgentOutputError(
-                f"expected at least {MIN_RECOMMENDATIONS} recommendations that reference a "
-                f"provided query_uuid, got {len(valid)}"
+                "expected at least 1 recommendation that references a provided query_uuid, got 0"
             )
         return valid[:MAX_RECOMMENDATIONS]

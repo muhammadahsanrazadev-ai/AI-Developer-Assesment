@@ -49,8 +49,14 @@
   }
 }
 
+.rec-query {
+  margin: 12px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+}
+
 .rec-title {
-  margin: 12px 0 8px;
+  margin: 8px 0;
   font: var(--mat-sys-title-medium);
 }
 

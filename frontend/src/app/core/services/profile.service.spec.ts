@@ -4,7 +4,7 @@ import { TestBed } from '@angular/core/testing';
 
 import { environment } from '../../../environments/environment';
 import { BusinessProfile, CreateProfileRequest } from '../../shared/models/profile.model';
-import { ContentRecommendation } from '../../shared/models/recommendation.model';
+import { ContentRecommendation, RecommendationListResponse } from '../../shared/models/recommendation.model';
 import { ApiError } from './api-error';
 import { ProfileService } from './profile.service';
 
@@ -85,16 +85,21 @@ describe('ProfileService', () => {
       rationale: 'The domain is not mentioned for this high-volume query.',
       target_keywords: ['ai seo tools'],
       priority: 'high',
+      query_text: 'What is the best SEO content tool?',
       created_at: '2026-11-04T18:45:00+00:00',
     };
-    let items: ContentRecommendation[] = [];
+    const body: RecommendationListResponse = {
+      items: [recommendation],
+      total: 1,
+      run_uuid: 'run-1',
+      empty_reason: null,
+    };
+    let response: RecommendationListResponse | undefined;
 
-    service.getRecommendations('p-1').subscribe((result) => (items = result));
+    service.getRecommendations('p-1').subscribe((result) => (response = result));
 
-    httpMock
-      .expectOne(`${API}/profiles/p-1/recommendations`)
-      .flush({ items: [recommendation], total: 1, run_uuid: 'run-1' });
-    expect(items).toEqual([recommendation]);
+    httpMock.expectOne(`${API}/profiles/p-1/recommendations`).flush(body);
+    expect(response).toEqual(body);
   });
 
   it('maps the backend error envelope to a typed ApiError', () => {

@@ -153,6 +153,8 @@ def _recommend(run: PipelineRun, profile: BusinessProfile, queries: list[Discove
     )[:RECOMMENDATION_INPUT_QUERIES]
     if not gaps:
         logger.info("Run %s: domain visible for every scored query; no recommendations", run.uuid)
+        _delete_run_recommendations(run)
+        db.session.commit()
         return
 
     gap_queries = [
@@ -172,6 +174,7 @@ def _recommend(run: PipelineRun, profile: BusinessProfile, queries: list[Discove
         db.session.commit()
         return
 
+    _delete_run_recommendations(run)
     db.session.add_all(
         ContentRecommendation(
             profile_uuid=profile.uuid,
@@ -185,6 +188,13 @@ def _recommend(run: PipelineRun, profile: BusinessProfile, queries: list[Discove
         for item in result.data
     )
     db.session.commit()
+
+
+def _delete_run_recommendations(run: PipelineRun) -> None:
+    query_ids = db.session.query(DiscoveredQuery.uuid).filter_by(run_uuid=run.uuid)
+    ContentRecommendation.query.filter(ContentRecommendation.query_uuid.in_(query_ids)).delete(
+        synchronize_session="fetch"
+    )
 
 
 def _finalise(run_uuid: str, failed: bool, errors: list[str]) -> None:
@@ -238,5 +248,13 @@ def recheck_query(query: DiscoveredQuery, llm_client: LLMClient | None = None) -
                        {"reason": result.error})
 
     apply_score(query, result.data)
-    db.session.commit()
+    errors: list[str] = []
+    _recommend(query.run, profile, list(query.run.queries), llm, errors)
+    if errors:
+        existing = query.run.error_message or ""
+        extra = "; ".join(errors)
+        if extra not in existing:
+            combined = f"{existing}; {extra}".strip("; ")
+            query.run.error_message = combined[:MAX_ERROR_LENGTH]
+        db.session.commit()
     return query

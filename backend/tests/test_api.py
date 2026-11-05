@@ -1,8 +1,11 @@
 import time
+from datetime import timedelta
 
 import pytest
 
 from app import db
+from app.models import DiscoveredQuery, PipelineRun, utcnow
+from app.utils.scoring import priority_for_score
 from tests.conftest import PROFILE_PAYLOAD
 
 
@@ -89,10 +92,60 @@ def test_run_flow_filters_pagination_and_recommendations(client, profile, fake_l
     high = client.get(f"/api/v1/profiles/{profile.uuid}/queries?min_score=0.5").get_json()
     assert all(q["opportunity_score"] >= 0.5 for q in high["items"])
 
+    queries = client.get(f"/api/v1/profiles/{profile.uuid}/queries?per_page=20").get_json()
+    by_id = {item["query_uuid"]: item for item in queries["items"]}
     recs = client.get(f"/api/v1/profiles/{profile.uuid}/recommendations").get_json()
-    assert [r["priority"] for r in recs["items"]] == ["high", "high", "medium", "low"]
+    assert recs["empty_reason"] is None and recs["total"] >= 1
+    for item in recs["items"]:
+        source = by_id[item["target_query_uuid"]]
+        assert item["priority"] == priority_for_score(source["opportunity_score"])
+        assert item["query_text"] == source["query_text"]
     assert {"recommendation_uuid", "target_query_uuid", "content_type", "title", "rationale",
-            "target_keywords", "priority"} <= set(recs["items"][0])
+            "target_keywords", "priority", "query_text"} <= set(recs["items"][0])
+
+
+def test_stats_count_queries_from_the_latest_completed_run_only(client, profile):
+    older = PipelineRun(profile_uuid=profile.uuid, status="completed", started_at=utcnow())
+    db.session.add(older)
+    db.session.flush()
+    db.session.add(DiscoveredQuery(
+        profile_uuid=profile.uuid, run_uuid=older.uuid, query_text="Old question?",
+        opportunity_score=0.1, domain_visible=False,
+    ))
+    newer = PipelineRun(
+        profile_uuid=profile.uuid, status="completed", started_at=utcnow() + timedelta(seconds=5),
+    )
+    failed = PipelineRun(
+        profile_uuid=profile.uuid, status="failed", started_at=utcnow() + timedelta(seconds=10),
+    )
+    db.session.add_all([newer, failed])
+    db.session.flush()
+    db.session.add_all([
+        DiscoveredQuery(
+            profile_uuid=profile.uuid, run_uuid=newer.uuid, query_text="Current question?",
+            opportunity_score=0.4, domain_visible=False,
+        ),
+        DiscoveredQuery(
+            profile_uuid=profile.uuid, run_uuid=newer.uuid, query_text="Another current question?",
+            opportunity_score=0.6, domain_visible=True, visibility_position=1,
+        ),
+        DiscoveredQuery(
+            profile_uuid=profile.uuid, run_uuid=failed.uuid, query_text="Failed run question?",
+            opportunity_score=0.9, domain_visible=False,
+        ),
+    ])
+    db.session.commit()
+
+    stats = client.get("/api/v1/stats").get_json()
+
+    assert stats["total_profiles"] == 1
+    assert stats["total_queries_discovered"] == 2
+    assert stats["avg_opportunity_score"] == 0.5
+
+
+def test_recommendations_explain_an_empty_list(client, profile):
+    body = client.get(f"/api/v1/profiles/{profile.uuid}/recommendations").get_json()
+    assert body["items"] == [] and body["empty_reason"] == "no_completed_run"
 
 
 def test_cors_allows_the_angular_origin(client):

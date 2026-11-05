@@ -16,8 +16,8 @@ BuyerIntent = Literal["find_provider", "compare_options", "hire", "choose_provid
 DISCOVERY_SYSTEM_PROMPT = f"""You are a search-intelligence analyst. You study what a potential customer \
 asks an AI assistant (ChatGPT, Claude, Perplexity) while looking for a provider.
 
-The business may be in any industry. Use only the name, domain, industry, and description \
-you are given. Do not assume an industry, a service list, or a question template.
+The business may be in any industry. Use only the name, domain, industry, description, and \
+competitors you are given. Do not assume an industry, a service list, or a question template.
 
 First, identify what this business actually sells. For each offering, copy profile_quote \
 as a short contiguous phrase from the industry or the description, exactly as written. \
@@ -32,14 +32,19 @@ for example: who can help, where can I find, which company, which provider, who 
 who offers, looking for, hire, recommend, best, choose, pricing, offer, or provide.
 
 Allowed: "Which company should a startup hire for this?", "Where can I find a provider?", \
-"Does this company provide this service?", "What is the best provider for this?"
+"Does this company provide this service?", "What is the best provider for this?", \
+"How does the registered business compare to one competitor?"
 Not allowed: "What is involved?", "How do I build it myself?", "What are the benefits of a method?", \
 or a definition that does not ask for a provider.
 
 Rules:
 - Most questions name no brand. At most {MAX_BRANDED} questions use the exact registered \
 business name, and those must still be buyer questions.
-- Do not name a competitor. Do not compare competitors. Do not review a competitor.
+- A comparison must name the registered business and exactly one competitor from the list. \
+Write the business name exactly as given, and the competitor using its "name" value. \
+Example shape: "How does <business name> compare to <one competitor>?". \
+Do not compare two competitors. Do not name a competitor in a question that omits the business. \
+A comparison counts toward the {MAX_BRANDED} questions that use the business name.
 - Do not include years or dates.
 - Every question is unique and ends with a question mark.
 - intent is exactly one of: find_provider, compare_options, hire, choose_provider.
@@ -68,6 +73,8 @@ _BUYER_INTENT = re.compile(
     r"\bbest\b|"
     r"\btop\b|"
     r"\bcompare\b|"
+    r"\bversus\b|"
+    r"\bvs\b|"
     r"\bchoose\b|"
     r"\bpricing\b|"
     r"\bquote\b|"
@@ -107,29 +114,41 @@ class DiscoveryOutput(BaseModel):
     queries: list[DiscoveredQueryItem] = Field(min_length=1)
 
 
-def competitor_stems(competitors, own_domain: str) -> set[str]:
-    """Domain labels and stored names that must not appear as whole words."""
+def competitor_entries(competitors, own_domain: str) -> list[dict]:
+    """One record per competitor, with the words that count as its name."""
     own = normalise_domain(own_domain).split(".")[0]
-    stems: set[str] = set()
+    entries: list[dict] = []
+    seen: set[str] = set()
     for item in competitors or []:
         domain = item
-        name = ""
+        explicit = ""
         if isinstance(item, dict):
             domain = str(item.get("domain") or "")
-            name = str(item.get("name") or "")
+            explicit = str(item.get("name") or "")
         elif not isinstance(item, str):
             continue
-        label = normalise_domain(str(domain)).split(".")[0]
+        normalised = normalise_domain(str(domain))
+        label = normalised.split(".")[0]
+        stems: list[str] = []
         if len(label) >= 4 and label != own:
-            stems.add(label)
-        cleaned = " ".join(name.lower().split())
-        if len(cleaned) >= 4:
-            stems.add(cleaned)
-    return stems
+            stems.append(label)
+        cleaned = " ".join(explicit.lower().split())
+        if len(cleaned) >= 4 and cleaned not in stems:
+            stems.append(cleaned)
+        key = normalised or cleaned
+        if not stems or key in seen:
+            continue
+        seen.add(key)
+        entries.append({"domain": normalised, "name": cleaned or label, "stems": stems})
+    return entries
 
 
-def contains_competitor(text: str, stems: set[str]) -> bool:
-    return any(re.search(rf"\b{re.escape(stem)}\b", text, re.IGNORECASE) for stem in stems)
+def named_competitors(text: str, entries: list[dict]) -> list[str]:
+    found: list[str] = []
+    for entry in entries:
+        if any(re.search(rf"\b{re.escape(stem)}\b", text, re.IGNORECASE) for stem in entry["stems"]):
+            found.append(entry["name"])
+    return found
 
 
 def is_buyer_intent(text: str) -> bool:
@@ -179,7 +198,7 @@ def validate_business_relevance(output: DiscoveryOutput, *, name: str, domain: s
         if _copied_quote(offering.profile_quote, industry, description):
             grounded.add(" ".join(offering.label.lower().split()))
 
-    stems = competitor_stems(competitors, domain)
+    competitors_known = competitor_entries(competitors, domain)
     brand = " ".join(name.lower().split())
     seen: set[str] = set()
     unique: list[str] = []
@@ -197,9 +216,12 @@ def validate_business_relevance(output: DiscoveryOutput, *, name: str, domain: s
             reasons.append("contains a year")
         if is_educational(text) or not is_buyer_intent(text):
             reasons.append("must be a buyer question, not a definition or a tutorial")
-        if contains_competitor(text, stems):
-            reasons.append("names a competitor")
         uses_brand = bool(brand) and brand in text.lower()
+        named = named_competitors(text, competitors_known)
+        if named and (not uses_brand or len(named) != 1):
+            reasons.append(
+                "a comparison must use the registered business name and exactly one competitor"
+            )
         if uses_brand and branded >= MAX_BRANDED:
             reasons.append(f"at most {MAX_BRANDED} questions may use the registered business name")
         if reasons:
@@ -233,6 +255,10 @@ class QueryDiscoveryAgent(BaseAgent):
             "domain": domain,
             "industry": industry,
             "description": description,
+            "competitors": [
+                {"domain": entry["domain"], "name": entry["name"]}
+                for entry in competitor_entries(competitors, domain)
+            ],
         }
         return "Business profile:\n" + json.dumps(profile, indent=2)
 

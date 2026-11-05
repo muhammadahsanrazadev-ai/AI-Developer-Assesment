@@ -181,8 +181,8 @@ Base URL: `http://localhost:5000/api/v1`. All bodies are JSON.
 | `GET`  | `/profiles/{profile_uuid}` | 200 | One profile. |
 | `POST` | `/profiles/{profile_uuid}/run` | 202 | Start the pipeline (async). 409 if a run is already in progress. |
 | `GET`  | `/profiles/{profile_uuid}/queries` | 200 | Queries of the latest completed run. Params: `min_score` (0–1), `status` (`visible / not_visible / unknown`), `page` (≥1), `per_page` (1–100, default 20). Sorted by score, highest first. |
-| `GET`  | `/profiles/{profile_uuid}/recommendations` | 200 | Recommendations of the latest completed run, high priority first. |
-| `POST` | `/queries/{query_uuid}/recheck` | 200 | Re-run the visibility check for one query and return the updated query. 502 if the LLM fails. |
+| `GET`  | `/profiles/{profile_uuid}/recommendations` | 200 | Recommendations of the latest completed run, high priority first. `empty_reason` is `no_completed_run`, `all_visible`, `generation_failed`, or `null`. Each item includes `query_text`. |
+| `POST` | `/queries/{query_uuid}/recheck` | 200 | Re-run the visibility check for one query, rebuild that run's recommendations, and return the updated query. 502 if the visibility check fails. |
 
 ### Extra endpoints (needed by the dashboard and polling)
 
@@ -279,6 +279,7 @@ Recommendations (`GET /profiles/{uuid}/recommendations`) return
   "rationale": "AI assistants answer this high-volume question with competitor tools only…",
   "target_keywords": ["ai seo tools", "seo content optimization", "content optimization software"],
   "priority": "high",
+  "query_text": "What are the best AI tools for SEO content optimization?",
   "created_at": "2026-11-04T18:44:57+00:00"
 }
 ```
@@ -336,17 +337,21 @@ build user message → LLM call (JSON mode) → strip ``` fences → json.loads
 
 ### 1. Query Discovery Agent (`agents/discovery.py`)
 
-* **Input:** name, domain, industry, description. Competitors stay stored on the profile and
-  are not sent to the model.
+* **Input:** name, domain, industry, description, and competitors. Each competitor is sent as
+  its domain plus the name the model may write (the domain label, such as `clearscope` for
+  `clearscope.io`).
 * **Output saved:** 10–20 `query_text` strings. The model also returns `offerings` and, on
   each question, `offering_label` and `intent`. Those fields are checked and then discarded.
 * **Prompt:** works for any industry. The model copies a `profile_quote` from the industry or
   description, then writes buyer questions that may use synonyms. At most 3 questions use the
-  exact registered name. No competitor names, definitions, or DIY tutorials.
+  exact registered name. A comparison must use that registered name and exactly one listed
+  competitor, as in "How does Surfer SEO compare to Clearscope?". Two competitors, or a
+  competitor without the business name, are rejected. Definitions and DIY tutorials are rejected.
 * **Post-validation:** every kept question must point at an offering grounded in the profile,
   and it must be a buyer question. Missing `?` is added. Competitor names are matched on
-  word boundaries. Invalid questions are dropped. The run fails only when fewer than 10
-  valid questions remain; the agent retries once and a second failure saves nothing.
+  word boundaries, and a comparison is kept only when the business name and exactly one
+  competitor are both present. Invalid questions are dropped. The run fails only when fewer
+  than 10 valid questions remain; the agent retries once and a second failure saves nothing.
 * Temperature 0.4 so the model stays closer to the plan instead of inventing extra wording.
 
 ### 2. Visibility Scoring Agent (`agents/scoring.py`)
@@ -356,21 +361,27 @@ build user message → LLM call (JSON mode) → strip ``` fences → json.loads
   `estimated_search_volume` (0–10,000,000) and `competitive_difficulty` (0–100).
 * **Key design choice:** the target domain is **not sent to the model**. If the prompt said
   "is surferseo.com mentioned?", the model would be biased towards mentioning it. Instead
-  the model writes a neutral answer and lists the brands it mentioned, and code computes
-  `domain_visible` and `visibility_position` by matching the normalised domain (or the exact
-  business name) against that list.
+  the model writes a neutral answer and lists the brands it mentioned. Code then decides
+  `domain_visible` and `visibility_position` by matching the domain, a flexible business
+  name (`Surfer`, `SurferSEO`, and `Surfer SEO` are the same brand), and the simulated
+  answer text when the brand list leaves the business out.
 * Temperature 0.3. Each query is scored independently, five at a time in a thread pool.
 
 ### 3. Content Recommendation Agent (`agents/recommendation.py`)
 
 * **Input:** the profile and the top 5 **not visible** queries by opportunity score.
 * **Output:** `{"recommendations": [{target_query_uuid, content_type, title, rationale,
-  target_keywords, priority}]}` with 3–5 items.
-* **Rules:** `content_type` ∈ `blog_post | landing_page | faq`, `priority` ∈
-  `high | medium | low` (Pydantic `Literal`s); titles are category-level, without the brand
-  name or years; 3–8 lowercase keywords each (prompt), at most 10 accepted (schema).
+  target_keywords, priority}]}`. The prompt asks for 3–5. One or two valid items are kept
+  when that is all the model can ground; zero valid items fails the step.
+* **Rules:** `content_type` ∈ `blog_post | landing_page | faq`. `priority` is set in code
+  from the target query's opportunity score, using the same bands as the score chip
+  (`high` ≥ 0.7, `medium` 0.4–0.69, `low` < 0.4). Titles are category-level, without the
+  brand name or years; 3–8 lowercase keywords each (prompt), at most 10 accepted (schema).
 * **Post-validation:** drops items whose `target_query_uuid` was not in the input,
-  de-duplicates keywords, requires at least 3 valid items and keeps at most 5.
+  de-duplicates keywords, keeps at least 1 valid item and at most 5. The API adds
+  `query_text` so each card can show the question it targets.
+* **Recheck:** after a query is scored again, recommendations for that run are generated
+  again from the current top gaps. A query that becomes visible drops out of that set.
 * Temperature 0.5.
 
 ### Orchestrator and partial-failure handling (`services/pipeline.py`)
@@ -395,7 +406,7 @@ into `PipelineRun.tokens_used`.
 ```
 opportunity_score = gap × (0.6 × volume + 0.4 × ease)        → clamped to 0.0–1.0
 
-volume = log10(estimated_search_volume + 1) / log10(100 001)   (capped at 1.0)
+volume = log10(estimated_search_volume + 1) / log10(1 000 001)   (capped at 1.0)
 ease   = 1 − competitive_difficulty / 100
 gap    = 1.0  if the domain is not visible
          0.1 / 0.3 / 0.5  if visible at position 1 / 2 / 3
@@ -410,7 +421,8 @@ gap    = 1.0  if the domain is not visible
   bottom regardless of its size, and a query where it is absent should rank near the top.
 * **Volume** is how much demand there is. It is log-scaled because search volumes span many
   orders of magnitude: 100 → 10,000 searches is a real difference, 1 M → 1.1 M is not.
-  100,000 monthly searches already counts as maximum demand.
+  1,000,000 monthly searches counts as maximum demand, so a 100,000-search query still
+  ranks below a 1,000,000-search query.
 * **Ease** is the inverse of competition: winning a mention is more realistic where fewer
   established brands dominate the answers.
 * Volume weighs more than ease (0.6 vs 0.4) because demand is the bigger driver of value,
@@ -420,8 +432,8 @@ gap    = 1.0  if the domain is not visible
 
 | Query | Volume | Difficulty | Visible | volume | ease | gap | Score |
 |-------|--------|-----------|---------|--------|------|-----|-------|
-| "How does ClickUp compare to other project management tools?" | 25,000 | 70 | no | 0.880 | 0.30 | 1.0 | 1.0 × (0.528 + 0.120) = **0.648** |
-| "Is Notion good for both personal and professional use?" | 50,000 | 70 | #1 | 0.940 | 0.30 | 0.1 | 0.1 × (0.564 + 0.120) = **0.068** |
+| "How does ClickUp compare to other project management tools?" | 25,000 | 70 | no | 0.733 | 0.30 | 1.0 | 1.0 × (0.4398 + 0.120) = **0.5598** |
+| "Is Notion good for both personal and professional use?" | 50,000 | 70 | #1 | 0.783 | 0.30 | 0.1 | 0.1 × (0.4699 + 0.120) = **0.059** |
 
 The second query has twice the volume but scores far lower because Notion already wins it.
 That is the ordering the dashboard needs: work on what you are missing first.
@@ -447,17 +459,19 @@ These cover every point the brief leaves open.
 | Topic | Decision | Why / consequence |
 |-------|----------|-------------------|
 | Run execution | Asynchronous: `POST /run` returns 202 and runs in a background thread; the UI polls. | No HTTP timeouts on a 20 s+ run, and live progress in the UI. A thread (not Celery/Redis) keeps the stack to what the brief names; a server restart loses a running job (handled by the 15-minute stale-run rule). |
-| Search volume and difficulty | Estimated by the LLM (no paid SEO data API). | The brief prefers real data; no third-party provider was added to keep setup to one API key. Estimates are approximate and change slightly on recheck. |
+| Search volume and difficulty | Estimated by the LLM (no paid SEO data API). Volume is log-scaled and reaches its maximum at 1,000,000 monthly searches. | The brief prefers real data; no third-party provider was added to keep setup to one API key. Estimates are approximate and change slightly on recheck. |
 | AI visibility check | Simulated answer from `gpt-4o`, not live ChatGPT/Perplexity results. | There is no public API for "what does ChatGPT answer to users"; simulation is the practical approximation. |
 | Status values | `PipelineRun.status` uses only `running / completed / failed`. A partial failure is `completed` + `error_message` + `queries_scored < queries_discovered`. | Keeps the spec's three values; the UI shows partial runs as "completed with warnings". |
 | Profile status | `created / running / completed / failed`, mirrors the latest run. | Lets the dashboard show each profile's state. |
 | Unknown visibility | `domain_visible` is nullable; `null` = unknown (scoring failed), exposed through `status=unknown`. | Avoids pretending a failed check means "not visible". |
 | Query identifier | Exposed as `query_uuid` (spec names `recommendation_uuid`, `target_query_uuid`). | Consistent naming across objects. |
-| Which run's data is shown | Queries and recommendations come from the latest **completed** run. | A re-run does not mix old and new results; history stays in the database. |
-| Recommendations per run | 3–5 in total, generated from the top 5 not-visible queries. | Matches "3–5 actionable recommendations" and focuses on the biggest gaps. |
+| Which run's data is shown | Queries, chart, recommendations, and the summary counts come from the latest **completed** run. Dashboard totals do the same, per profile. A newer failed run is shown as a warning and does not replace those counts. While a run is in progress, the tabs keep the previous completed results and say so. | A re-run does not mix old and new results, and the summary card matches the table. |
+| Recommendations per run | The prompt asks for 3–5, from the top 5 not-visible queries. One or two valid items are saved instead of discarding the list. Priority is derived from the opportunity score (`high` ≥ 0.7, `medium` 0.4–0.69, `low` < 0.4). Recheck rebuilds that run's recommendations from the updated gaps. | A short but valid model reply still produces cards, and the badge matches the score chip. |
+| Visibility match | Domain match is exact after normalisation. The business name also matches without spaces or hyphens, and a shorter prefix of at least four characters matches (`Surfer` matches `Surfer SEO`). If the brand list omits the business, the simulated answer text is checked too. | A missed spelling no longer marks a visible brand as absent and inflates its opportunity score. |
 | Priority filter | Client-side (recommendations are at most 5 per run). | No extra API parameter needed. |
 | Extra endpoints | `GET /profiles`, `GET /stats`, `GET /runs`, `GET /runs/{uuid}`. | The six specified endpoints cannot feed the dashboard stats, recent runs list or polling. |
 | Domain validation | Bare domain regex (no protocol/path), same rules on backend and frontend, also for competitors. | Matches "no http://, just domain.com". |
+| Comparison questions | A comparison must contain the registered business name and exactly one saved competitor. Competitor-versus-competitor questions are dropped. These questions count toward the 3 questions that may use the business name. | Matches the brief's example ("How does Surfer SEO compare to Clearscope?") and keeps every comparison about this business. |
 | Database | SQLite by default (`DATABASE_URL` accepts PostgreSQL). | Zero setup for reviewers. |
 | Provider | OpenAI only (`ANTHROPIC_API_KEY` stays in `.env.example` as the spec lists it). | One provider is enough; it is isolated behind `LLMClient`. |
 | Server in Docker | Flask's built-in threaded server. | Simplicity for an assessment; a production deployment would use gunicorn. |
@@ -486,7 +500,7 @@ These cover every point the brief leaves open.
 
 ## Testing
 
-Backend (35 tests, about 7 s, no API key needed: the LLM is a stub):
+Backend (47 tests, about 25 s, no API key needed: the LLM is a stub):
 
 ```bash
 cd backend

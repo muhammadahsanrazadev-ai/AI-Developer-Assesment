@@ -115,7 +115,7 @@
             <p>The pipeline may still be running, but its status could not be checked.</p>
             <button mat-stroked-button type="button" (click)="load()">Refresh status</button>
           </div>
-        } @else if (finishedRun(); as run) {
+        } @else if (summaryRun(); as run) {
           <div class="summary-header">
             <span class="status-chip" [class]="'status-chip--' + run.status">{{ run.status }}</span>
             <span class="muted">{{ (run.completed_at ?? run.started_at) | date: 'medium' }}</span>
@@ -140,6 +140,12 @@
               {{ run.error_message }}
             </p>
           }
+          @if (failedAttempt(); as failed) {
+            <p class="run-message run-message--error">
+              <mat-icon inline>error</mat-icon>
+              Latest run failed: {{ failed.error_message ?? 'The pipeline did not finish.' }}
+            </p>
+          }
         } @else {
           <div class="state-panel compact">
             <mat-icon class="state-icon">rocket_launch</mat-icon>
@@ -149,6 +155,10 @@
       </mat-card-content>
     </mat-card>
   </div>
+
+  @if (showingPreviousResults()) {
+    <p class="results-note">Showing results from the last completed run.</p>
+  }
 
   <nav mat-tab-nav-bar [tabPanel]="tabPanel" class="detail-tabs">
     @for (tab of tabs; track tab.path) {

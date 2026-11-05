@@ -1,6 +1,6 @@
 import pytest
 
-from app.utils.scoring import opportunity_score
+from app.utils.scoring import opportunity_score, priority_for_score
 
 
 @pytest.mark.parametrize("volume,difficulty,visible,position", [
@@ -22,6 +22,16 @@ def test_score_orders_opportunities_meaningfully():
 
     assert gap_easy > gap_hard > visible_low > visible_top
     assert gap_easy > small_gap
+
+
+def test_volume_above_one_hundred_thousand_still_raises_the_score():
+    assert opportunity_score(1_000_000, 50, False, None) > opportunity_score(100_000, 50, False, None)
+
+
+def test_priority_follows_the_score_chip_bands():
+    assert priority_for_score(0.7) == "high"
+    assert priority_for_score(0.4) == "medium"
+    assert priority_for_score(0.39) == "low"
 
 
 def test_visibility_position_lowers_score_monotonically():

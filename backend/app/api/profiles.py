@@ -2,7 +2,7 @@ import math
 import re
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func
 
 from app import APIError, db
 from app.models import BusinessProfile, ContentRecommendation, DiscoveredQuery, PipelineRun
@@ -102,15 +102,20 @@ def list_profile_recommendations(profile_uuid: str):
         "items": [r.to_dict() for r in items],
         "total": len(items),
         "run_uuid": run.uuid if run else None,
+        "empty_reason": _empty_reason(run, items),
     })
 
 
 @profiles_bp.get("/stats")
 def get_stats():
-    avg_score = db.session.query(func.avg(DiscoveredQuery.opportunity_score)).scalar()
+    latest_runs = _latest_completed_run_uuids()
+    scored = DiscoveredQuery.query.filter(DiscoveredQuery.run_uuid.in_(latest_runs))
+    avg_score = db.session.query(func.avg(DiscoveredQuery.opportunity_score)).filter(
+        DiscoveredQuery.run_uuid.in_(latest_runs)
+    ).scalar()
     return jsonify({
         "total_profiles": BusinessProfile.query.count(),
-        "total_queries_discovered": DiscoveredQuery.query.count(),
+        "total_queries_discovered": scored.count(),
         "avg_opportunity_score": round(avg_score, 4) if avg_score is not None else None,
     })
 
@@ -141,6 +146,39 @@ def _get_profile_or_404(profile_uuid: str) -> BusinessProfile:
         raise APIError(404, "not_found", "Business profile not found.",
                        {"profile_uuid": profile_uuid})
     return profile
+
+
+def _empty_reason(run: PipelineRun | None, items: list) -> str | None:
+    if items:
+        return None
+    if run is None:
+        return "no_completed_run"
+    if run.error_message and "Content recommendation failed" in run.error_message:
+        return "generation_failed"
+    return "all_visible"
+
+
+def _latest_completed_run_uuids():
+    latest_started = (
+        db.session.query(
+            PipelineRun.profile_uuid.label("profile_uuid"),
+            func.max(PipelineRun.started_at).label("started_at"),
+        )
+        .filter(PipelineRun.status == "completed")
+        .group_by(PipelineRun.profile_uuid)
+        .subquery()
+    )
+    return (
+        db.session.query(PipelineRun.uuid)
+        .join(
+            latest_started,
+            and_(
+                PipelineRun.profile_uuid == latest_started.c.profile_uuid,
+                PipelineRun.started_at == latest_started.c.started_at,
+                PipelineRun.status == "completed",
+            ),
+        )
+    )
 
 
 def _latest_completed_run(profile: BusinessProfile) -> PipelineRun | None:

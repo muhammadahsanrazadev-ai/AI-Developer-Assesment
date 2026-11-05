@@ -144,6 +144,14 @@ def test_competitor_stems_use_word_boundaries():
     with pytest.raises(AgentOutputError, match="competitor"):
         _relevance(versus)
 
+    comparison = good[:-1] + ["How does Surfer SEO compare to Clearscope?"]
+    saved = _relevance(comparison)
+    assert "How does Surfer SEO compare to Clearscope?" in saved
+
+    both = good[:-1] + ["How does Surfer SEO compare to Clearscope and MarketMuse?"]
+    with pytest.raises(AgentOutputError, match="exactly one competitor"):
+        _relevance(both)
+
 
 def test_offering_quote_must_be_copied_from_the_profile():
     questions = [f"Which provider is the best SEO tool for case {i}?" for i in range(10)]
@@ -198,6 +206,34 @@ def test_scoring_finds_target_position_from_normalised_domains():
     assert result.data.visibility_position == 2
 
 
+def test_scoring_matches_short_and_compact_brand_names():
+    short = scoring_json(mentioned_brands=[{"name": "Surfer", "domain": ""}])
+    compact = scoring_json(mentioned_brands=[{"name": "Surfer-SEO", "domain": "example.com"}])
+    llm = Scripted(short, compact)
+    agent = VisibilityScoringAgent(llm)
+
+    first = agent.run(query_text="q?", industry="SEO", target_domain="surferseo.com",
+                      target_name="Surfer SEO")
+    second = agent.run(query_text="q?", industry="SEO", target_domain="surferseo.com",
+                       target_name="Surfer SEO")
+
+    assert first.ok and first.data.domain_visible is True and first.data.visibility_position == 1
+    assert second.ok and second.data.domain_visible is True and second.data.visibility_position == 1
+
+
+def test_scoring_reads_the_simulated_answer_when_the_brand_list_omits_it():
+    payload = scoring_json(
+        simulated_answer="Clearscope leads most answers, and Surfer is sometimes mentioned too.",
+        mentioned_brands=[{"name": "Clearscope", "domain": "clearscope.io"}],
+    )
+    result = VisibilityScoringAgent(Scripted(payload)).run(
+        query_text="q?", industry="SEO", target_domain="surferseo.com", target_name="Surfer SEO")
+
+    assert result.ok
+    assert result.data.domain_visible is True
+    assert result.data.visibility_position == 2
+
+
 def test_recommendations_drop_unknown_query_uuids_and_bad_enums_fail():
     gaps = [{"query_uuid": "q1", "query_text": "a?"}, {"query_uuid": "q2", "query_text": "b?"}]
 
@@ -212,6 +248,11 @@ def test_recommendations_drop_unknown_query_uuids_and_bad_enums_fail():
     assert ok.ok and len(ok.data) == 3
     assert {r["target_query_uuid"] for r in ok.data} <= {"q1", "q2"}
     assert ok.data[0]["target_keywords"] == ["seo tool"]
+
+    two = ContentRecommendationAgent(Scripted(json.dumps(
+        {"recommendations": [item("q1"), item("not-provided")]}
+    ))).run(profile=PROFILE_PAYLOAD, gap_queries=gaps)
+    assert two.ok and len(two.data) == 1
 
     bad = json.dumps({"recommendations": [item("q1", "video")] * 3})
     failed = ContentRecommendationAgent(Scripted(bad, bad)).run(profile=PROFILE_PAYLOAD,

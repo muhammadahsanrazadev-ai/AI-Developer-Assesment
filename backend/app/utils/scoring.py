@@ -1,6 +1,6 @@
 import math
 
-VOLUME_CAP = 100_000
+VOLUME_CAP = 1_000_000
 VOLUME_WEIGHT = 0.6
 EASE_WEIGHT = 0.4
 
@@ -28,6 +28,15 @@ def gap_factor(domain_visible: bool | None, visibility_position: int | None) -> 
     if visibility_position is None:
         return GAP_UNKNOWN
     return GAP_BY_POSITION.get(visibility_position, GAP_LOW_POSITION)
+
+
+def priority_for_score(score: float) -> str:
+    """Same bands as the dashboard score chip: high >= 0.7, medium 0.4–0.69, low < 0.4."""
+    if score >= 0.7:
+        return "high"
+    if score >= 0.4:
+        return "medium"
+    return "low"
 
 
 def opportunity_score(

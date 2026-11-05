@@ -51,5 +51,6 @@ class ContentRecommendation(db.Model):
             "rationale": self.rationale,
             "target_keywords": list(self.target_keywords or []),
             "priority": self.priority,
+            "query_text": self.target_query.query_text if self.target_query is not None else "",
             "created_at": isoformat(self.created_at),
         }

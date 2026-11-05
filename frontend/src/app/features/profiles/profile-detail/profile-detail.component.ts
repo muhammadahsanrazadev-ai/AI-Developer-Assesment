@@ -66,6 +66,8 @@ export class ProfileDetailComponent implements OnInit {
   protected readonly error = signal<ApiError | null>(null);
   protected readonly profile = signal<BusinessProfile | null>(null);
   protected readonly latestRun = signal<PipelineRun | null>(null);
+  /** Latest run that finished successfully. Tabs and summary counts use this run. */
+  protected readonly completedRun = signal<PipelineRun | null>(null);
   /** True between pressing "Run Pipeline" and the POST /run response. */
   protected readonly starting = signal(false);
   /** Set when polling a running run fails, so the user can refresh instead of waiting forever. */
@@ -74,9 +76,26 @@ export class ProfileDetailComponent implements OnInit {
   protected readonly running = computed(
     () => this.starting() || (this.latestRun()?.status === 'running' && !this.trackingLost()),
   );
-  protected readonly finishedRun = computed(() => {
-    const run = this.latestRun();
-    return run && run.status !== 'running' ? run : null;
+  /** Counts shown beside the profile. A failed rerun keeps the previous successful counts. */
+  protected readonly summaryRun = computed(() => {
+    if (this.running() || this.trackingLost()) {
+      return null;
+    }
+    return this.completedRun() ?? (this.latestRun()?.status === 'failed' ? this.latestRun() : null);
+  });
+  /** A newer failed run, shown as a warning while the summary stays on the last success. */
+  protected readonly failedAttempt = computed(() => {
+    const latest = this.latestRun();
+    const completed = this.completedRun();
+    if (latest?.status !== 'failed' || completed === null || latest.run_uuid === completed.run_uuid) {
+      return null;
+    }
+    return latest;
+  });
+  protected readonly showingPreviousResults = computed(() => {
+    const completed = this.completedRun();
+    const latest = this.latestRun();
+    return completed !== null && latest !== null && completed.run_uuid !== latest.run_uuid;
   });
 
   ngOnInit(): void {
@@ -91,18 +110,18 @@ export class ProfileDetailComponent implements OnInit {
     this.trackingLost.set(false);
     forkJoin({
       profile: this.profileService.getProfile(this.profileUuid()),
-      runs: this.pipelineService.getRuns({ profileUuid: this.profileUuid(), limit: 1 }),
+      runs: this.pipelineService.getRuns({ profileUuid: this.profileUuid(), limit: 50 }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: ({ profile, runs }) => {
           this.profile.set(profile);
           this.title.setTitle(`${profile.name} · AI Visibility Intelligence`);
-          const run = runs[0] ?? null;
-          this.latestRun.set(run);
+          this.rememberRuns(runs);
           this.loading.set(false);
-          if (run?.status === 'running') {
-            this.watchRun(run.run_uuid);
+          const latest = runs[0] ?? null;
+          if (latest?.status === 'running') {
+            this.watchRun(latest.run_uuid);
           }
         },
         error: (error: ApiError) => {
@@ -143,6 +162,9 @@ export class ProfileDetailComponent implements OnInit {
       .subscribe({
         next: (run) => {
           this.latestRun.set(run);
+          if (run.status === 'completed') {
+            this.completedRun.set(run);
+          }
           if (run.status !== 'running') {
             this.setProfileStatus(run.status);
             this.notifyFinished(run);
@@ -167,6 +189,11 @@ export class ProfileDetailComponent implements OnInit {
     } else {
       this.snackBar.open(`Pipeline complete: ${run.queries_scored} queries scored.`, 'OK');
     }
+  }
+
+  private rememberRuns(runs: PipelineRun[]): void {
+    this.latestRun.set(runs[0] ?? null);
+    this.completedRun.set(runs.find((run) => run.status === 'completed') ?? null);
   }
 
   private setProfileStatus(status: BusinessProfile['status']): void {

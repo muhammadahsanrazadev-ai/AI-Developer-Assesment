@@ -17,6 +17,7 @@ import {
   CONTENT_TYPE_LABELS,
   ContentRecommendation,
   Priority,
+  RecommendationEmptyReason,
 } from '../../../shared/models/recommendation.model';
 
 type PriorityFilter = 'all' | Priority;
@@ -57,6 +58,7 @@ export class RecommendationsListComponent implements OnInit {
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly recommendations = signal<ContentRecommendation[]>([]);
+  protected readonly emptyReason = signal<RecommendationEmptyReason | null>(null);
   protected readonly filtered = computed(() => {
     const priority = this.selectedPriority();
     const items = this.recommendations();
@@ -84,8 +86,9 @@ export class RecommendationsListComponent implements OnInit {
       .getRecommendations(this.profileUuid())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (items) => {
-          this.recommendations.set(items);
+        next: (response) => {
+          this.recommendations.set(response.items);
+          this.emptyReason.set(response.empty_reason);
           this.loading.set(false);
         },
         error: (error: ApiError) => {
@@ -98,5 +101,27 @@ export class RecommendationsListComponent implements OnInit {
 
   protected countFor(priority: Priority): number {
     return this.recommendations().filter((item) => item.priority === priority).length;
+  }
+
+  protected emptyTitle(): string {
+    switch (this.emptyReason()) {
+      case 'all_visible':
+        return 'No visibility gap';
+      case 'generation_failed':
+        return 'Recommendations were not generated';
+      default:
+        return 'No recommendations yet';
+    }
+  }
+
+  protected emptyMessage(): string {
+    switch (this.emptyReason()) {
+      case 'all_visible':
+        return 'Every scored query already mentions this business, so there is no missing answer to write content for.';
+      case 'generation_failed':
+        return 'The content step failed. The pipeline summary above shows the error. Run the pipeline again to try once more.';
+      default:
+        return 'Run the pipeline and the Content Recommendation Agent will suggest blog posts, landing pages and FAQs for the queries where this business is not visible.';
+    }
   }
 }
