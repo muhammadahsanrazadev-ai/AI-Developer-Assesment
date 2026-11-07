@@ -80,18 +80,23 @@
         <table mat-table [dataSource]="page.items" class="queries-table">
           <ng-container matColumnDef="query_text">
             <th mat-header-cell *matHeaderCellDef>Query Text</th>
-            <td mat-cell *matCellDef="let query" class="query-text">{{ query.query_text }}</td>
+            <td mat-cell *matCellDef="let query" class="query-text">
+              <div>{{ query.query_text }}</div>
+              @if (query.search_keyword) {
+                <div class="search-keyword">Keyword: {{ query.search_keyword }}</div>
+              }
+            </td>
           </ng-container>
 
           <ng-container matColumnDef="volume">
-            <th mat-header-cell *matHeaderCellDef class="numeric">Search Volume</th>
+            <th mat-header-cell *matHeaderCellDef class="numeric" title="Google Ads monthly searches for this keyword, United States">Search Volume</th>
             <td mat-cell *matCellDef="let query" class="numeric">
               {{ query.estimated_search_volume === null ? '—' : (query.estimated_search_volume | number) }}
             </td>
           </ng-container>
 
           <ng-container matColumnDef="difficulty">
-            <th mat-header-cell *matHeaderCellDef class="numeric">Difficulty</th>
+            <th mat-header-cell *matHeaderCellDef class="numeric" title="Google Ads competition index, 0 to 100">Difficulty</th>
             <td mat-cell *matCellDef="let query" class="numeric">
               {{ query.competitive_difficulty === null ? '—' : query.competitive_difficulty }}
             </td>

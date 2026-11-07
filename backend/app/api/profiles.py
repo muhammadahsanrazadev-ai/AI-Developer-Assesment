@@ -2,7 +2,7 @@ import math
 import re
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import and_, case, func
+from sqlalchemy import and_, case, func, or_
 
 from app import APIError, db
 from app.models import BusinessProfile, ContentRecommendation, DiscoveredQuery, PipelineRun
@@ -64,8 +64,15 @@ def list_profile_queries(profile_uuid: str):
         return jsonify(_page_body([], page, per_page, 0, run_uuid=None))
 
     query = DiscoveredQuery.query.filter_by(run_uuid=run.uuid)
-    if min_score is not None:
+    # A score of 0 still means "show everything", including queries DataForSEO could not
+    # measure. Those rows have a null opportunity_score, and SQL treats null >= 0 as false.
+    if min_score is not None and min_score > 0:
         query = query.filter(DiscoveredQuery.opportunity_score >= min_score)
+    elif min_score == 0:
+        query = query.filter(or_(
+            DiscoveredQuery.opportunity_score >= 0,
+            DiscoveredQuery.opportunity_score.is_(None),
+        ))
     if status == "visible":
         query = query.filter(DiscoveredQuery.domain_visible.is_(True))
     elif status == "not_visible":

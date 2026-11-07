@@ -40,8 +40,6 @@ def scoring_json(**overrides) -> str:
         "simulated_answer": "Clearscope and Surfer SEO are common picks.",
         "mentioned_brands": [{"name": "Clearscope", "domain": "clearscope.io"},
                              {"name": "Surfer SEO", "domain": "https://www.SurferSEO.com/pricing"}],
-        "estimated_search_volume": 2400,
-        "competitive_difficulty": 70,
     }
     body.update(overrides)
     return json.dumps(body)
@@ -189,12 +187,17 @@ def test_provider_error_is_returned_as_failure():
     assert not result.ok and "RateLimitError" in result.error
 
 
-def test_scoring_rejects_out_of_range_difficulty():
-    llm = Scripted(scoring_json(competitive_difficulty=250), scoring_json(competitive_difficulty=250))
-    result = VisibilityScoringAgent(llm).run(query_text="q?", industry="SEO",
-                                             target_domain="surferseo.com")
+def test_scoring_does_not_take_volume_or_difficulty_from_the_model():
+    payload = json.loads(scoring_json())
+    payload["estimated_search_volume"] = 999999
+    payload["competitive_difficulty"] = 250
+    result = VisibilityScoringAgent(Scripted(json.dumps(payload))).run(
+        query_text="q?", industry="SEO", target_domain="surferseo.com", target_name="Surfer SEO")
 
-    assert not result.ok and "competitive_difficulty" in result.error
+    assert result.ok
+    assert not hasattr(result.data, "estimated_search_volume")
+    assert not hasattr(result.data, "competitive_difficulty")
+    assert result.data.domain_visible is True
 
 
 def test_scoring_finds_target_position_from_normalised_domains():

@@ -35,16 +35,25 @@
         }
       </ul>
     </div>
-    <div class="chart-container">
-      <canvas
-        baseChart
-        type="bar"
-        [data]="chartData()"
-        [options]="chartOptions()"
-        [legend]="false"
-        role="img"
-        aria-label="Bar chart of opportunity scores per query"
-      ></canvas>
+    @if (unscoredCount() > 0) {
+      <p class="chart-note">
+        {{ unscoredCount() }}
+        {{ unscoredCount() === 1 ? 'query has' : 'queries have' }}
+        no measured score, so {{ unscoredCount() === 1 ? 'it stays' : 'they stay' }} on the Queries tab.
+      </p>
+    }
+    <div class="chart-scroll">
+      <div class="chart-plot" [style.--chart-min-width]="chartMinWidth()">
+        <canvas
+          baseChart
+          type="bar"
+          [data]="chartData()"
+          [options]="chartOptions()"
+          [legend]="false"
+          role="img"
+          aria-label="Bar chart of opportunity scores per query"
+        ></canvas>
+      </div>
     </div>
   }
 </mat-card>

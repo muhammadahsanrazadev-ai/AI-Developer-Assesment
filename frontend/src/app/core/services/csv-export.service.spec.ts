@@ -7,6 +7,7 @@ function query(overrides: Partial<DiscoveredQuery> = {}): DiscoveredQuery {
     profile_uuid: 'p1',
     run_uuid: 'r1',
     query_text: 'best seo tools',
+    search_keyword: 'best seo tools',
     estimated_search_volume: 25000,
     competitive_difficulty: 70,
     opportunity_score: 0.6478,

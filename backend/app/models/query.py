@@ -38,6 +38,9 @@ class DiscoveredQuery(db.Model):
         index=True,
     )
     query_text = db.Column(db.Text, nullable=False)
+    # Google Ads keyword built from query_text. Null when the question cannot become
+    # a phrase the search-volume API accepts.
+    search_keyword = db.Column(db.String(80), nullable=True)
     # Scoring fields stay NULL when the Visibility Scoring Agent fails for this query;
     # domain_visible NULL is what the API exposes as status "unknown".
     estimated_search_volume = db.Column(db.Integer, nullable=True)
@@ -62,6 +65,7 @@ class DiscoveredQuery(db.Model):
             "profile_uuid": self.profile_uuid,
             "run_uuid": self.run_uuid,
             "query_text": self.query_text,
+            "search_keyword": self.search_keyword,
             "estimated_search_volume": self.estimated_search_volume,
             "competitive_difficulty": self.competitive_difficulty,
             "opportunity_score": self.opportunity_score,

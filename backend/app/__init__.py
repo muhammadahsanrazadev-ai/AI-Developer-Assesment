@@ -22,6 +22,11 @@ class Config:
     DEBUG = os.getenv("FLASK_ENV", "production") == "development"
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+    DATAFORSEO_LOGIN = os.getenv("DATAFORSEO_LOGIN", "")
+    DATAFORSEO_PASSWORD = os.getenv("DATAFORSEO_PASSWORD", "")
+    DATAFORSEO_BASE_URL = os.getenv("DATAFORSEO_BASE_URL", "https://api.dataforseo.com")
+    DATAFORSEO_LOCATION_CODE = os.getenv("DATAFORSEO_LOCATION_CODE", "2840")
+    DATAFORSEO_LANGUAGE_CODE = os.getenv("DATAFORSEO_LANGUAGE_CODE", "en")
     CORS_ORIGINS = [
         origin.strip()
         for origin in os.getenv("CORS_ORIGINS", "http://localhost:4200").split(",")

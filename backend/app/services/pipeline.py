@@ -9,6 +9,7 @@ from app import APIError, db
 from app.agents import (
     AgentResult,
     ContentRecommendationAgent,
+    KeywordAgent,
     LLMClient,
     LLMClientError,
     OpenAIClient,
@@ -17,6 +18,7 @@ from app.agents import (
 )
 from app.models import BusinessProfile, ContentRecommendation, DiscoveredQuery, PipelineRun
 from app.models import utcnow
+from app.services.search_volume import SEO_API_MESSAGE, SearchVolumeError, build_volume_client
 from app.utils.scoring import opportunity_score
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,13 @@ def run_pipeline(run_uuid: str, llm_client: LLMClient | None = None) -> None:
     failed = False
 
     try:
+        try:
+            volume_client = build_volume_client(current_app)
+        except SearchVolumeError:
+            failed = True
+            errors.append(SEO_API_MESSAGE)
+            return
+
         llm = llm_client or build_llm_client(current_app)
 
         discovery = QueryDiscoveryAgent(llm).run(
@@ -79,12 +88,30 @@ def run_pipeline(run_uuid: str, llm_client: LLMClient | None = None) -> None:
             errors.append(f"Query discovery failed: {discovery.error}")
             return
 
+        keyword_result = KeywordAgent(llm).run(questions=list(discovery.data))
+        _add_tokens(run, keyword_result)
+        keywords = keyword_result.data if keyword_result.ok else {}
+        if not keyword_result.ok:
+            errors.append(f"Keyword generation failed: {keyword_result.error}")
+
         queries = [
-            DiscoveredQuery(profile_uuid=profile.uuid, run_uuid=run.uuid, query_text=text)
+            DiscoveredQuery(
+                profile_uuid=profile.uuid, run_uuid=run.uuid, query_text=text,
+                search_keyword=keywords.get(text),
+            )
             for text in discovery.data
         ]
         db.session.add_all(queries)
         run.queries_discovered = len(queries)
+        db.session.commit()
+
+        try:
+            metrics = volume_client.fetch([query.search_keyword for query in queries])
+        except SearchVolumeError:
+            failed = True
+            errors.append(SEO_API_MESSAGE)
+            return
+        _attach_metrics(queries, metrics)
         db.session.commit()
 
         _score_queries(run, profile, queries, llm, errors)
@@ -98,6 +125,9 @@ def run_pipeline(run_uuid: str, llm_client: LLMClient | None = None) -> None:
     except LLMClientError as exc:
         failed = True
         errors.append(f"LLM client error: {exc}")
+    except SearchVolumeError:
+        failed = True
+        errors.append(SEO_API_MESSAGE)
     except Exception as exc:  # the run must always be finalised, whatever went wrong
         logger.exception("Pipeline run %s crashed", run_uuid)
         db.session.rollback()
@@ -134,13 +164,25 @@ def _score_queries(run: PipelineRun, profile: BusinessProfile, queries: list[Dis
             db.session.commit()
 
 
+def _attach_metrics(queries: list[DiscoveredQuery], metrics) -> None:
+    for query in queries:
+        item = metrics.get(query.search_keyword) if query.search_keyword else None
+        if item is None:
+            query.estimated_search_volume = None
+            query.competitive_difficulty = None
+            continue
+        query.estimated_search_volume = item.search_volume
+        query.competitive_difficulty = item.competition_index
+
+
 def apply_score(query: DiscoveredQuery, score) -> None:
-    query.estimated_search_volume = score.estimated_search_volume
-    query.competitive_difficulty = score.competitive_difficulty
     query.domain_visible = score.domain_visible
     query.visibility_position = score.visibility_position
+    if query.estimated_search_volume is None or query.competitive_difficulty is None:
+        query.opportunity_score = None
+        return
     query.opportunity_score = opportunity_score(
-        score.estimated_search_volume, score.competitive_difficulty,
+        query.estimated_search_volume, query.competitive_difficulty,
         score.domain_visible, score.visibility_position,
     )
 
@@ -232,8 +274,29 @@ def _expire_stale_runs(profile: BusinessProfile) -> None:
 
 def recheck_query(query: DiscoveredQuery, llm_client: LLMClient | None = None) -> DiscoveredQuery:
     profile = query.profile
+    keyword = query.search_keyword
+    llm = llm_client
+    if not keyword:
+        try:
+            llm = llm or build_llm_client(current_app)
+        except LLMClientError as exc:
+            raise APIError(502, "llm_unavailable", str(exc)) from exc
+        generated = KeywordAgent(llm).run(questions=[query.query_text])
+        _add_tokens(query.run, generated)
+        if not generated.ok or not generated.data.get(query.query_text):
+            db.session.commit()
+            raise APIError(502, "keyword_failed", "Keyword generation failed.",
+                           {"reason": generated.error})
+        keyword = generated.data[query.query_text]
+
     try:
-        llm = llm_client or build_llm_client(current_app)
+        metrics = build_volume_client(current_app).fetch([keyword])
+    except SearchVolumeError as exc:
+        db.session.rollback()
+        raise APIError(502, "seo_api_unavailable", SEO_API_MESSAGE) from exc
+
+    try:
+        llm = llm or build_llm_client(current_app)
     except LLMClientError as exc:
         raise APIError(502, "llm_unavailable", str(exc)) from exc
 
@@ -247,6 +310,14 @@ def recheck_query(query: DiscoveredQuery, llm_client: LLMClient | None = None) -
         raise APIError(502, "recheck_failed", "Visibility recheck failed.",
                        {"reason": result.error})
 
+    query.search_keyword = keyword
+    item = metrics.get(keyword) if keyword else None
+    if item is None:
+        query.estimated_search_volume = None
+        query.competitive_difficulty = None
+    else:
+        query.estimated_search_volume = item.search_volume
+        query.competitive_difficulty = item.competition_index
     apply_score(query, result.data)
     errors: list[str] = []
     _recommend(query.run, profile, list(query.run.queries), llm, errors)

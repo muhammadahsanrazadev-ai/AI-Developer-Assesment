@@ -18,6 +18,8 @@ import { DiscoveredQuery } from '../../../shared/models/query.model';
 /** The API's maximum page size; one run produces at most 20 queries. */
 const CHART_PAGE_SIZE = 100;
 const LABEL_MAX_LENGTH = 30;
+/** Room for a 30-character label drawn at 40 degrees, so neighbours do not cover each other. */
+const PIXELS_PER_BAR = 160;
 
 export const BAR_COLOURS = {
   visible: '#1e88e5',
@@ -59,7 +61,9 @@ export class OpportunityChartComponent implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly hasRun = signal(false);
   protected readonly queries = signal<DiscoveredQuery[]>([]);
+  protected readonly unscoredCount = signal(0);
   protected readonly hasUnknown = computed(() => this.queries().some((query) => query.domain_visible === null));
+  protected readonly chartMinWidth = computed(() => `${this.queries().length * PIXELS_PER_BAR}px`);
 
   protected readonly chartData = computed<ChartConfiguration<'bar'>['data']>(() => {
     const queries = this.queries();
@@ -86,7 +90,14 @@ export class OpportunityChartComponent implements OnInit {
     scales: {
       x: {
         title: { display: true, text: 'Query', color: ink },
-        ticks: { autoSkip: false, maxRotation: 60, minRotation: 30, color: ink },
+        ticks: {
+          autoSkip: false,
+          maxRotation: 40,
+          minRotation: 40,
+          color: ink,
+          padding: 8,
+          font: { size: 12 },
+        },
         grid: { color: grid },
       },
       y: {
@@ -136,7 +147,9 @@ export class OpportunityChartComponent implements OnInit {
       .subscribe({
         next: (page) => {
           this.hasRun.set(page.run_uuid !== null);
-          this.queries.set(page.items.filter((query) => query.opportunity_score !== null));
+          const scored = page.items.filter((query) => query.opportunity_score !== null);
+          this.unscoredCount.set(page.items.length - scored.length);
+          this.queries.set(scored);
           this.loading.set(false);
         },
         error: (error: ApiError) => {

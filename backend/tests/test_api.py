@@ -143,6 +143,33 @@ def test_stats_count_queries_from_the_latest_completed_run_only(client, profile)
     assert stats["avg_opportunity_score"] == 0.5
 
 
+def test_min_score_zero_keeps_queries_with_no_measured_demand(client, profile):
+    run = PipelineRun(profile_uuid=profile.uuid, status="completed", started_at=utcnow())
+    db.session.add(run)
+    db.session.flush()
+    db.session.add_all([
+        DiscoveredQuery(
+            profile_uuid=profile.uuid, run_uuid=run.uuid,
+            query_text="Which company offers SaaS development?",
+            search_keyword="saas development company",
+            estimated_search_volume=None, competitive_difficulty=None,
+            opportunity_score=None, domain_visible=False,
+        ),
+        DiscoveredQuery(
+            profile_uuid=profile.uuid, run_uuid=run.uuid, query_text="A measured question?",
+            estimated_search_volume=2400, competitive_difficulty=40,
+            opportunity_score=0.6, domain_visible=False,
+        ),
+    ])
+    db.session.commit()
+
+    included = client.get(f"/api/v1/profiles/{profile.uuid}/queries?min_score=0").get_json()
+    assert included["total"] == 2
+
+    filtered = client.get(f"/api/v1/profiles/{profile.uuid}/queries?min_score=0.5").get_json()
+    assert [item["query_text"] for item in filtered["items"]] == ["A measured question?"]
+
+
 def test_recommendations_explain_an_empty_list(client, profile):
     body = client.get(f"/api/v1/profiles/{profile.uuid}/recommendations").get_json()
     assert body["items"] == [] and body["empty_reason"] == "no_completed_run"

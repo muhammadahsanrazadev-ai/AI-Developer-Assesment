@@ -5,6 +5,8 @@ export interface DiscoveredQuery {
   profile_uuid: string;
   run_uuid: string;
   query_text: string;
+  /** Google Ads keyword built from query_text. Null when the question cannot be measured. */
+  search_keyword: string | null;
   estimated_search_volume: number | null;
   competitive_difficulty: number | null;
   opportunity_score: number | null;

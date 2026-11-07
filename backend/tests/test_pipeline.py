@@ -71,6 +71,47 @@ def test_recheck_failure_raises_502_and_keeps_existing_score(profile):
     assert query.opportunity_score == before
 
 
+def test_seo_api_failure_stops_the_run_before_any_score(profile, fake_volume):
+    fake_volume.fail = True
+    run = run_with(profile, FakeLLM())
+
+    assert run.status == "failed"
+    assert run.error_message == "SEO API not working properly."
+    assert run.queries_scored == 0
+    assert DiscoveredQuery.query.filter(
+        DiscoveredQuery.opportunity_score.isnot(None)
+    ).count() == 0
+
+
+def test_a_keyword_with_no_measurement_stays_unscored(profile, fake_volume):
+    question = "What is the best SEO tool for case 1?"
+    fake_volume.null_keywords.add("seo tool 1")
+    run = run_with(profile, FakeLLM())
+
+    assert run.status == "completed" and run.queries_scored == 12
+    query = DiscoveredQuery.query.filter_by(run_uuid=run.uuid, query_text=question).one()
+    assert query.search_keyword == "seo tool 1"
+    assert query.estimated_search_volume is None
+    assert query.competitive_difficulty is None
+    assert query.opportunity_score is None
+    assert query.domain_visible is False
+
+
+def test_recheck_seo_failure_keeps_the_saved_row(profile, fake_volume):
+    run = run_with(profile, FakeLLM())
+    query = DiscoveredQuery.query.filter_by(run_uuid=run.uuid).first()
+    before = (query.estimated_search_volume, query.competitive_difficulty, query.opportunity_score)
+    fake_volume.fail = True
+
+    with pytest.raises(APIError) as exc:
+        pipeline.recheck_query(query, llm_client=FakeLLM())
+
+    assert exc.value.status == 502
+    assert exc.value.message == "SEO API not working properly."
+    assert (query.estimated_search_volume, query.competitive_difficulty,
+            query.opportunity_score) == before
+
+
 def test_recheck_refreshes_recommendations_for_the_run(profile):
     run = run_with(profile, FakeLLM())
     query = DiscoveredQuery.query.filter_by(run_uuid=run.uuid, domain_visible=False).first()

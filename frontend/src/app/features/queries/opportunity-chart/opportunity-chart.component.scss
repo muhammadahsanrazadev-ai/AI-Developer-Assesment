@@ -42,7 +42,19 @@
   border-radius: 3px;
 }
 
-.chart-container {
+.chart-note {
+  margin: 0 0 8px;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 13px;
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chart-plot {
   position: relative;
   height: 460px;
+  width: max(100%, var(--chart-min-width));
 }

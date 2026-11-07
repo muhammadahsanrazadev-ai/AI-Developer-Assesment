@@ -11,9 +11,11 @@ sys.path.insert(0, str(BACKEND_DIR))
 from app import create_app, db  # noqa: E402
 from app.agents.base import LLMClientError, LLMResponse  # noqa: E402
 from app.agents.discovery import DISCOVERY_SYSTEM_PROMPT  # noqa: E402
+from app.agents.keyword import KEYWORD_SYSTEM_PROMPT  # noqa: E402
 from app.agents.scoring import SCORING_SYSTEM_PROMPT  # noqa: E402
 from app.models import BusinessProfile  # noqa: E402
 from app.services import pipeline  # noqa: E402
+from app.services.search_volume import KeywordMetrics, SearchVolumeError  # noqa: E402
 
 PROFILE_PAYLOAD = {
     "name": "Surfer SEO",
@@ -62,6 +64,13 @@ class FakeLLM:
             questions = [f"What is the best SEO tool for case {i}?" for i in range(12)]
             return LLMResponse(discovery_payload(questions), 100)
 
+        if system_prompt == KEYWORD_SYSTEM_PROMPT:
+            payload = json.loads(user_message.split("\n\nYour previous")[0])
+            return LLMResponse(json.dumps({"keywords": [
+                {"query_text": question, "search_keyword": f"seo tool {index}"}
+                for index, question in enumerate(payload["questions"])
+            ]}), 20)
+
         if system_prompt == SCORING_SYSTEM_PROMPT:
             question = json.loads(user_message.split("\n\nYour previous")[0])["question"]
             index = int(question.split("case ")[1].rstrip("?"))
@@ -72,8 +81,6 @@ class FakeLLM:
             return LLMResponse(json.dumps({
                 "simulated_answer": "Popular options include several tools.",
                 "mentioned_brands": brands,
-                "estimated_search_volume": 1000 * (index + 1),
-                "competitive_difficulty": 40 + index,
             }), 50)
 
         if not self.recommendations_valid:
@@ -112,8 +119,34 @@ def client(app):
     return app.test_client()
 
 
+class FakeVolume:
+    """Stand-in for DataForSEO. One number per keyword, or an outage when fail is set."""
+
+    def __init__(self):
+        self.fail = False
+        self.null_keywords: set[str] = set()
+        self.keywords: list[str] = []
+
+    def fetch(self, keywords: list[str]):
+        if self.fail:
+            raise SearchVolumeError("SEO API not working properly.")
+        self.keywords = [keyword for keyword in keywords if keyword]
+        return {
+            keyword: KeywordMetrics(None, None) if keyword in self.null_keywords
+            else KeywordMetrics(1200, 40)
+            for keyword in self.keywords
+        }
+
+
+@pytest.fixture(autouse=True)
+def fake_volume(monkeypatch):
+    client = FakeVolume()
+    monkeypatch.setattr(pipeline, "build_volume_client", lambda _app: client)
+    return client
+
+
 @pytest.fixture
-def fake_llm(monkeypatch):
+def fake_llm(monkeypatch, fake_volume):
     llm = FakeLLM()
     monkeypatch.setattr(pipeline, "build_llm_client", lambda _app: llm)
     return llm

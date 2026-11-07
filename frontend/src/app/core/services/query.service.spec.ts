@@ -14,6 +14,7 @@ const queryFixture: DiscoveredQuery = {
   profile_uuid: 'p-1',
   run_uuid: 'run-1',
   query_text: 'best ai seo tools',
+  search_keyword: 'best ai seo tools',
   estimated_search_volume: 12000,
   competitive_difficulty: 60,
   opportunity_score: 0.72,

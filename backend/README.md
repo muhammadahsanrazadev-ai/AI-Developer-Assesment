@@ -8,7 +8,7 @@ For a business profile the pipeline:
 
 1. **discovers** 10–20 questions real customers ask AI assistants about the industry,
 2. **scores** each question: simulates an AI answer, checks whether the business's domain is
-   mentioned (and at which position), and estimates search volume and competition,
+   mentioned (and at which position). Search volume and difficulty come from DataForSEO,
 3. **recommends** 3–5 pieces of content (blog post, landing page, FAQ) for the biggest gaps.
 
 This file documents the whole project (backend, architecture, agents, scoring, decisions).
@@ -87,6 +87,11 @@ Open http://localhost:4200. Details: [`../frontend/README.md`](../frontend/READM
 | `FLASK_ENV`         | no       | `production`            | `development` turns on Flask debug mode. |
 | `SECRET_KEY`        | no       | `change-me`             | Flask secret key. |
 | `CORS_ORIGINS`      | no       | `http://localhost:4200` | Comma-separated origins allowed to call `/api/*`. |
+| `DATAFORSEO_LOGIN`  | yes      | –                       | DataForSEO API login. A run fails closed without it. |
+| `DATAFORSEO_PASSWORD` | yes    | –                       | DataForSEO API password, not the website login password. |
+| `DATAFORSEO_BASE_URL` | no     | `https://api.dataforseo.com` | Live API host. |
+| `DATAFORSEO_LOCATION_CODE` | no | `2840`              | Google Ads location. `2840` is the United States. |
+| `DATAFORSEO_LANGUAGE_CODE` | no | `en`                | Google Ads language. |
 
 `.env` is git-ignored; only `.env.example` is committed.
 
@@ -161,7 +166,7 @@ SQLite foreign keys are switched on with `PRAGMA foreign_keys=ON`.
 |-------|-------|-----------|
 | `BusinessProfile` | `business_profiles` | uuid, name, domain, industry, description, competitors (JSON), status `created / running / completed / failed`, created_at, updated_at |
 | `PipelineRun` | `pipeline_runs` | uuid, profile_uuid (FK), status `running / completed / failed`, queries_discovered, queries_scored, tokens_used, error_message, started_at, completed_at |
-| `DiscoveredQuery` | `discovered_queries` | uuid, profile_uuid (FK), run_uuid (FK), query_text, estimated_search_volume, competitive_difficulty, opportunity_score, domain_visible (nullable), visibility_position, discovered_at |
+| `DiscoveredQuery` | `discovered_queries` | uuid, profile_uuid (FK), run_uuid (FK), query_text, search_keyword, estimated_search_volume, competitive_difficulty, opportunity_score, domain_visible (nullable), visibility_position, discovered_at |
 | `ContentRecommendation` | `content_recommendations` | uuid, profile_uuid (FK), query_uuid (FK), content_type `blog_post / landing_page / faq`, title, rationale, target_keywords (JSON), priority `high / medium / low`, created_at |
 
 Check constraints enforce the enums and ranges (score 0–1, difficulty 0–100, volume ≥ 0,
@@ -248,6 +253,7 @@ List queries (`GET /profiles/{uuid}/queries?min_score=0.5&status=not_visible&pag
       "profile_uuid": "b81abdc7-…",
       "run_uuid": "5d1c…",
       "query_text": "What are the best AI tools for SEO content optimization?",
+      "search_keyword": "best ai tools seo content optimization",
       "estimated_search_volume": 25000,
       "competitive_difficulty": 75,
       "opportunity_score": 0.6278,
@@ -357,8 +363,9 @@ build user message → LLM call (JSON mode) → strip ``` fences → json.loads
 ### 2. Visibility Scoring Agent (`agents/scoring.py`)
 
 * **Input:** one question plus the industry.
-* **Output:** `simulated_answer`, `mentioned_brands` (ordered `{name, domain}` list),
-  `estimated_search_volume` (0–10,000,000) and `competitive_difficulty` (0–100).
+* **Output:** `simulated_answer` and `mentioned_brands` (ordered `{name, domain}` list).
+  The model does not estimate search volume or difficulty. Those numbers come from
+   DataForSEO for a short Google keyword written by a separate keyword agent.
 * **Key design choice:** the target domain is **not sent to the model**. If the prompt said
   "is surferseo.com mentioned?", the model would be biased towards mentioning it. Instead
   the model writes a neutral answer and lists the brands it mentioned. Code then decides
@@ -388,6 +395,8 @@ build user message → LLM call (JSON mode) → strip ``` fences → json.loads
 
 | Situation | Result |
 |-----------|--------|
+| Keyword generation fails | Run continues. Questions are saved without a keyword, so they have no volume or difficulty. Visibility still runs. The error is recorded. |
+| SEO API missing, down, or not `20000` | Run `failed`. `error_message` is `SEO API not working properly.` No score is written. A failure before discovery saves no queries. |
 | Discovery fails | Run `failed`, `error_message` explains why. |
 | Some queries fail scoring | Run continues. Failed queries keep `domain_visible = null` (shown as **unknown**) and can be rechecked. Run ends `completed` with `queries_scored < queries_discovered` and the per-query errors in `error_message`. |
 | Every query fails scoring | Run `failed`. |
@@ -423,8 +432,9 @@ gap    = 1.0  if the domain is not visible
   orders of magnitude: 100 → 10,000 searches is a real difference, 1 M → 1.1 M is not.
   1,000,000 monthly searches counts as maximum demand, so a 100,000-search query still
   ranks below a 1,000,000-search query.
-* **Ease** is the inverse of competition: winning a mention is more realistic where fewer
-  established brands dominate the answers.
+* **Ease** is the inverse of Google Ads `competition_index` (0–100), stored as
+  `competitive_difficulty`. A phrase with less paid competition scores as easier. This is
+  advertiser competition, not a measurement of how hard it is to be named in an AI answer.
 * Volume weighs more than ease (0.6 vs 0.4) because demand is the bigger driver of value,
   and both together can never exceed 1, so the score is always in 0–1.
 
@@ -459,7 +469,7 @@ These cover every point the brief leaves open.
 | Topic | Decision | Why / consequence |
 |-------|----------|-------------------|
 | Run execution | Asynchronous: `POST /run` returns 202 and runs in a background thread; the UI polls. | No HTTP timeouts on a 20 s+ run, and live progress in the UI. A thread (not Celery/Redis) keeps the stack to what the brief names; a server restart loses a running job (handled by the 15-minute stale-run rule). |
-| Search volume and difficulty | Estimated by the LLM (no paid SEO data API). Volume is log-scaled and reaches its maximum at 1,000,000 monthly searches. | The brief prefers real data; no third-party provider was added to keep setup to one API key. Estimates are approximate and change slightly on recheck. |
+| Search volume and difficulty | A keyword agent turns each question into a 2–4 word Google phrase. DataForSEO Google Ads Search Volume then returns `search_volume` and `competition_index` in one live call. Example: `Which company offers SaaS development?` becomes `saas development company`. Location defaults to the United States (`2840`), language `en`. | The rule-based keyword kept almost every word and was too long for a real Google search. The model writes only the phrase, never the numbers. If keyword generation fails, visibility still runs and those volumes stay empty. If the SEO API fails, the run fails with `SEO API not working properly.` and no score is saved. Volume is still log-scaled and reaches its maximum at 1,000,000 monthly searches. |
 | AI visibility check | Simulated answer from `gpt-4o`, not live ChatGPT/Perplexity results. | There is no public API for "what does ChatGPT answer to users"; simulation is the practical approximation. |
 | Status values | `PipelineRun.status` uses only `running / completed / failed`. A partial failure is `completed` + `error_message` + `queries_scored < queries_discovered`. | Keeps the spec's three values; the UI shows partial runs as "completed with warnings". |
 | Profile status | `created / running / completed / failed`, mirrors the latest run. | Lets the dashboard show each profile's state. |
